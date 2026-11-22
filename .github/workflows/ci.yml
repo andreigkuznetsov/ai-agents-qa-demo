@@ -22,10 +22,41 @@ jobs:
         run: docker build --progress=plain --tag ai-agents-qa-demo:ci ./backend
       - name: Smoke test the liveness endpoint
         run: |
-          container=$(docker run --detach --rm --publish 127.0.0.1:18080:8080 \
+          container=$(docker run --detach --publish 127.0.0.1:18080:8080 \
             --env UVICORN_PORT=8080 ai-agents-qa-demo:ci)
-          trap 'docker logs "$container"; docker stop "$container"' EXIT
-          response=$(curl --fail --silent --show-error --retry 10 \
-            --retry-all-errors --retry-delay 1 --retry-max-time 20 --max-time 2 \
-            http://127.0.0.1:18080/health/live)
-          test "$response" = '{"status":"ok"}'
+          cleanup() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              docker inspect --format '{{json .State}}' "$container" || true
+              docker logs "$container" || true
+            fi
+            docker rm --force "$container" >/dev/null || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          # Uvicorn binds its listener after ASGI startup.
+          docker exec --interactive "$container" /app/.venv/bin/python - <<'PY'
+          import os
+          import socket
+          import time
+
+          address = ("127.0.0.1", int(os.environ["UVICORN_PORT"]))
+          deadline = time.monotonic() + 20
+          while True:
+              remaining = deadline - time.monotonic()
+              if remaining <= 0:
+                  raise SystemExit("Uvicorn did not start listening within 20 seconds")
+              try:
+                  with socket.create_connection(address, timeout=min(remaining, 0.5)):
+                      break
+              except OSError:
+                  time.sleep(min(0.2, max(0, deadline - time.monotonic())))
+          PY
+
+          response=$(curl --fail --silent --show-error --max-time 5 \
+            --write-out '\n%{http_code}' http://127.0.0.1:18080/health/live)
+          if [ "$response" != $'{"status":"ok"}\n200' ]; then
+            printf 'Unexpected liveness response (body and status): %q\n' "$response" >&2
+            exit 1
+          fi
