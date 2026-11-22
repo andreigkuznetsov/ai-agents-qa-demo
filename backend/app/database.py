@@ -97,6 +97,7 @@ class Database:
             hide_parameters=True,
         )
         self._cleanup: set[asyncio.Task[None]] = set()
+        self._invalidating: set[asyncio.Task[None]] = set()
 
     def _own(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
         task = asyncio.create_task(coro)
@@ -104,6 +105,7 @@ class Database:
 
         def finished(resource: asyncio.Task[None]) -> None:
             self._cleanup.discard(resource)
+            self._invalidating.discard(resource)
             if not resource.cancelled():
                 resource.exception()
 
@@ -121,7 +123,9 @@ class Database:
             await transaction.commit()
         except asyncio.CancelledError:
             cancelled = True
-            self._own(self._release(connection, invalidate=True))
+            self._invalidating.add(
+                self._own(self._release(connection, invalidate=True))
+            )
             raise
         finally:
             if not cancelled:
@@ -144,6 +148,10 @@ class Database:
             await connection.invalidate()
         finally:
             await connection.close()
+
+    @property
+    def invalidating(self) -> bool:
+        return bool(self._invalidating)
 
     async def drain_cleanup(self) -> None:
         while self._cleanup:

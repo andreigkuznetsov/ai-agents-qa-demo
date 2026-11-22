@@ -3,6 +3,9 @@ from typing import Any, cast
 
 import pytest
 from conftest import Project
+from fastapi.testclient import TestClient
+
+from app.main import app
 
 UNAVAILABLE = (503, b'{"status":"unavailable"}')
 
@@ -44,3 +47,27 @@ def test_incompatible_revision(migrated: Project, statement: str) -> None:
     assert migrated.health("/health/ready") == UNAVAILABLE
     assert migrated.health("/healthz") == UNAVAILABLE
     assert migrated.health("/health/live") == (200, b'{"status":"ok"}')
+
+
+def test_http_global_deadline(
+    migrated: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    migrated.api_env(monkeypatch)
+    monkeypatch.setenv("QA_SQL_TIMEOUT_MS", "6000")
+    with TestClient(app) as client:
+        assert client.get("/health/ready").status_code == 200
+        with migrated.db() as admin:
+            admin.execute("LOCK TABLE qa.alembic_version IN ACCESS EXCLUSIVE MODE")
+            for path in ("/health/ready", "/healthz"):
+                started = time.monotonic()
+                response = client.get(path)
+                assert (response.status_code, response.content) == UNAVAILABLE
+                assert 2.7 <= time.monotonic() - started <= 3.5
+            assert client.get("/health/live").json() == {"status": "ok"}
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:
+            if client.get("/health/ready").status_code == 200:
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("readiness did not recover after releasing the PostgreSQL lock")

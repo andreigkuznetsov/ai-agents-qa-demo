@@ -38,6 +38,8 @@ class Readiness:
             )
         probe = self.probe
         if probe is None or probe.task.done():
+            if self.database.invalidating:
+                return False
             probe = Probe(asyncio.create_task(self._check_database(deadline)))
             self.probe = probe
         if probe.stopping:

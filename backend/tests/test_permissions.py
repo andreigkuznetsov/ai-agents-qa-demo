@@ -62,7 +62,8 @@ def test_api_grants_after_upgrade(migrated: Project) -> None:
 
 
 def test_api_grants_after_repeat(migrated: Project) -> None:
-    migrated.compose("run", "--rm", "--no-deps", "migrate")
+    migrated.compose("stop", "api")
+    migrated.start("--update")
     assert_api_privileges(migrated)
 
 

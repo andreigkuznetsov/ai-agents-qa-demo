@@ -40,7 +40,8 @@ def test_repeat_preserves_schema_and_row(migrated: Project) -> None:
         acl = admin.execute(
             "SELECT relname,relacl::text FROM pg_class WHERE relnamespace = 'qa'::regnamespace ORDER BY relname"
         ).fetchall()
-    migrated.compose("run", "--rm", "--no-deps", "migrate")
+    migrated.compose("stop", "api")
+    migrated.start("--update")
     with migrated.db("api") as connection:
         assert connection.execute("SELECT * FROM qa.runs").fetchall() == [before]
         assert (
@@ -65,6 +66,11 @@ def failed_transaction(
 
     def fail_after_sql(connection: Any, *args: Any) -> None:
         if grant:
+            assert connection.exec_driver_sql("SHOW lock_timeout").scalar_one() == "3s"
+            assert (
+                connection.exec_driver_sql("SHOW statement_timeout").scalar_one()
+                == "15s"
+            )
             connection.exec_driver_sql("GRANT SELECT ON qa.runs TO qa_api")
             connection.exec_driver_sql(
                 "GRANT SELECT ON qa.alembic_version TO nonexistent_test_role"
@@ -140,3 +146,24 @@ def test_failed_update_keeps_api_stopped(migrated: Project) -> None:
             connection.execute("SELECT version_num FROM qa.alembic_version").fetchall()
             == revision
         )
+
+
+def test_migration_process_deadline(fresh: Project) -> None:
+    fresh.compose("up", "-d", "--wait", "--wait-timeout", "40", "db")
+    with fresh.db() as admin:
+        admin.execute("""
+            CREATE FUNCTION public.delay_migration() RETURNS event_trigger
+            LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(11); END; $$;
+            CREATE EVENT TRIGGER delay_migration ON ddl_command_start
+            WHEN TAG IN ('CREATE TABLE', 'GRANT') EXECUTE FUNCTION public.delay_migration();
+        """)
+    started = time.monotonic()
+    assert fresh.start(check=False).returncode != 0
+    assert time.monotonic() - started <= 35
+    state = cast(dict[str, Any], fresh.inspect("migrate")["State"])
+    assert state["ExitCode"] in (124, 137)
+    assert not fresh.compose("ps", "-q", "api")
+    with fresh.db() as admin:
+        assert admin.execute(
+            "SELECT to_regclass('qa.runs'), to_regclass('qa.alembic_version')"
+        ).fetchone() == (None, None)

@@ -114,6 +114,21 @@
   },
   "links": [
     {
+      "task": "2.4",
+      "target": "SC-PG-002",
+      "test": "backend/tests/test_migrations.py::test_migration_process_deadline"
+    },
+    {
+      "task": "1.8",
+      "target": "SC-PG-008",
+      "test": "backend/tests/test_health_postgres.py::test_http_global_deadline"
+    },
+    {
+      "task": "1.7",
+      "target": "SC-PG-005",
+      "test": "backend/tests/test_health_postgres.py::test_db_recovery"
+    },
+    {
       "task": "1.1",
       "target": "SC-PG-001",
       "test": "backend/tests/test_migrations.py::test_clean_start"
