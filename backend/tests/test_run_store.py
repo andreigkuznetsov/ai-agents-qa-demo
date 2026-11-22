@@ -135,39 +135,45 @@ def test_revision_gate_before_storage(
 def test_cancelled_write_recovery(
     migrated_db: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    migrated_db.api_env(monkeypatch)
     from sqlalchemy.ext.asyncio import AsyncTransaction
+
+    migrated_db.api_env(monkeypatch)
 
     async def verify() -> None:
         db = Database(Settings.from_env())
         store = RunStore(db)
-        actual_commit = AsyncTransaction.commit
+        commit = AsyncTransaction.commit
         try:
-            for commit_first in (False, True):
-                waiting = asyncio.Event()
-
-                async def pause(
-                    tx: AsyncTransaction, already_committed: bool = commit_first
-                ) -> None:
-                    if already_committed:
-                        await actual_commit(tx)
-                    waiting.set()
-                    await asyncio.Future[None]()
-
+            assert await store.read(uuid4()) is None
+            for commit_sent in (False, True):
                 uid = uuid4()
+                reached_commit = asyncio.Event()
+                release_commit = asyncio.Event()
+
+                async def interrupted_commit(transaction: AsyncTransaction) -> None:
+                    if commit_sent:
+                        await commit(transaction)
+                    reached_commit.set()
+                    await release_commit.wait()
+
                 with monkeypatch.context() as patch:
-                    patch.setattr(AsyncTransaction, "commit", pause)
-                    task = asyncio.create_task(store.create(uid))
-                    await asyncio.wait_for(waiting.wait(), 3)
-                    task.cancel()
-                    with pytest.raises(asyncio.CancelledError):
-                        await task
-                await db.drain_cleanup()
-                row = await store.read(uid)
-                assert (row is not None) == commit_first
+                    patch.setattr(AsyncTransaction, "commit", interrupted_commit)
+                    async with asyncio.TaskGroup() as group:
+                        insertion = group.create_task(store.create(uid))
+                        try:
+                            await asyncio.wait_for(reached_commit.wait(), 3)
+                            insertion.cancel()
+                            with pytest.raises(asyncio.CancelledError):
+                                await asyncio.wait_for(insertion, 3)
+                        finally:
+                            release_commit.set()
+
+                await asyncio.wait_for(db.drain_cleanup(), 3)
+                row = await asyncio.wait_for(store.read(uid), 3)
+                assert (row is not None) == commit_sent
                 assert db.engine.pool.checkedout() == 0  # type: ignore[attr-defined]
-            assert await store.create()
+            assert await asyncio.wait_for(store.create(), 3)
         finally:
-            await db.close()
+            await asyncio.wait_for(db.close(), 3)
 
     asyncio.run(verify())
