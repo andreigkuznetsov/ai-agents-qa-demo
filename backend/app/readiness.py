@@ -20,12 +20,13 @@ class Readiness:
 
     async def _check_database(self, deadline: float) -> bool:
         try:
-            async with asyncio.timeout_at(deadline), self.database.transaction():
-                pass
+            try:
+                async with asyncio.timeout_at(deadline), self.database.transaction():
+                    pass
+            finally:
+                await self.database.drain_cleanup()
         except (TimeoutError, SQLAlchemyError, RuntimeError, OSError):
             return False
-        finally:
-            await self.database.drain_cleanup()
         return True
 
     async def check(self, deadline: float | None = None) -> bool:

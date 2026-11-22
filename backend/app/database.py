@@ -151,13 +151,14 @@ class Database:
 
     @property
     def invalidating(self) -> bool:
-        return bool(self._invalidating)
+        return any(not task.done() for task in self._invalidating)
 
     async def drain_cleanup(self) -> None:
-        while self._cleanup:
-            await asyncio.gather(
-                *(asyncio.shield(task) for task in tuple(self._cleanup))
-            )
+        # A completed task can remain registered until its callback is scheduled.
+        # Wait only for work that was pending at entry so it can never spin here.
+        pending = [asyncio.shield(task) for task in self._cleanup if not task.done()]
+        if pending:
+            await asyncio.gather(*pending)
 
     async def close(self) -> None:
         await self.drain_cleanup()
