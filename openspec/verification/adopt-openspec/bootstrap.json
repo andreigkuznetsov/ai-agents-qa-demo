@@ -49,6 +49,18 @@
     {
       "task": "1.1",
       "test": "scripts/tests/test_check_sdd.py::SDDTests::test_rename_in_mixed_delta_requires_own_target"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_nested_delta_requires_target"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_nested_sync_requires_all_markdown_tasks_complete"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_removed_list_entry_can_be_mapped"
     }
   ]
 }

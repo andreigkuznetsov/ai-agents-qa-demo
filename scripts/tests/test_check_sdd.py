@@ -225,3 +225,44 @@ class SDDTests(unittest.TestCase):
                    "- TO: `### Requirement: AC-2 New title`\n")
         with self.assertRaisesRegex(ValueError, "Rename must keep the requirement ID"):
             self.verify()
+
+    def test_nested_delta_requires_target(self):
+        nested = DELTA.replace("/example/", "/identity/user-auth/")
+        self.add_delta()
+        self.record["scope"][-1] = nested
+        (Path(nested).parent).mkdir(parents=True)
+        Path(DELTA).rename(nested)
+        with self.assertRaisesRegex(ValueError, "Changed spec missing a verification target"):
+            self.verify()
+
+    def test_nested_sync_requires_all_markdown_tasks_complete(self):
+        spec = "openspec/specs/identity/user-auth/spec.md"
+        self.record["scope"].append(spec)
+        self.write(spec, "## Requirements\n### Requirement: AC-1 Example\n")
+        for bullet in ("*", "+", "2.", "2)"):
+            with self.subTest(bullet=bullet), self.assertRaisesRegex(
+                ValueError, "Cannot sync or archive with incomplete tasks"
+            ):
+                self.write(TASKS, f"- [x] 1.1 Done\n{bullet} [ ] 2.1 Still open\n")
+                self.verify()
+
+    def test_removed_list_entry_can_be_mapped(self):
+        self.record["scope"].append(DELTA)
+        self.write(DELTA, "\ufeff## removed Requirements ##\n* `### Requirement: AC-1 Old`\n")
+        self.record["targets"]["a"] = {"requirement": "AC-1", "spec": DELTA}
+        self.assertEqual(self.verify(), ("sample", 1, "implementation"))
+
+    def test_scenario_heading_with_lowercase_prefix_requires_target(self):
+        self.add_delta()
+        self.write(DELTA, Path(DELTA).read_text(encoding="utf-8").replace("Scenario:", "scenario:"))
+        self.record["targets"]["a"] = {"requirement": "AC-1", "spec": DELTA}
+        with self.assertRaisesRegex(ValueError, "Unknown spec requirement/scenario"):
+            self.verify()
+
+    def test_unlabelled_scenario_and_fenced_example(self):
+        self.record["scope"].append(DELTA)
+        self.write(DELTA, "## ADDED Requirements\n### Requirement: AC-1 Example\n"
+                   "```markdown\n#### Scenario: SC-FAKE Example\n```\n#### SC-1 Example\n"
+                   "- **WHEN** called\n- **THEN** responds\n")
+        self.record["targets"]["a"] = {"requirement": "AC-1", "scenario": "SC-1", "spec": DELTA}
+        self.assertEqual(self.verify(), ("sample", 1, "implementation"))

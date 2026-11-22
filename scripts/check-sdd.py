@@ -11,13 +11,15 @@ import sys
 
 KT1 = "7c2d939cec68fa39eae9f3dfb84e9f055404810c"
 MANIFEST = re.compile(r"openspec/verification/([a-z0-9-]+)/[a-z0-9-]+\.json")
-SPEC = re.compile(r"openspec/(?:specs|changes/(?!archive/)[^/]+/specs)/[^/]+/spec\.md")
-TASK = re.compile(r"^\s*- \[[ xX]\] ([0-9]+(?:\.[0-9]+)*) ", re.M)
-OPEN_TASK = re.compile(r"^\s*- \[ \] ", re.M)
-REQUIREMENT = re.compile(r"^### Requirement: (\S+)[^\n]*", re.M)
-SCENARIO = re.compile(r"^#### Scenario: (\S+)[^\n]*", re.M)
-RENAME_SECTION = re.compile(r"^## RENAMED Requirements[ \t]*\n([^\n]*(?:\n(?!## )[^\n]*)*)", re.M)
-RENAME_LINE = re.compile(r"^[ \t]*- (FROM|TO):[ \t]*(.+?)[ \t]*$", re.M)
+SPEC = re.compile(r"openspec/(?:specs|changes/(?!archive/)[^/]+/specs)/(?:[^/]+/)+spec\.md")
+TASK_LINE = re.compile(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]*\[[ \t]*([^\]\s]?)[ \t]*\](?![([])[ \t]*(.*)$", re.M)
+TASK_ID = re.compile(r"^([0-9]+(?:\.[0-9]+)*)[ \t]+")
+SECTION = re.compile(r"^##[ \t]+([^\n]+)", re.M)
+REQUIREMENT = re.compile(r"^###[ \t]*Requirement:[ \t]*(\S+)[^\n]*", re.M | re.I)
+SCENARIO = re.compile(r"^####[ \t]+(?:Scenario:[ \t]*)?(\S+)[^\n]*", re.M | re.I)
+REMOVED_LINE = re.compile(r"^[ \t]*[-*+][ \t]*`?###[ \t]*Requirement:[ \t]*(.+?)`?[ \t]*$", re.M)
+RENAME_LINE = re.compile(r"^[ \t]*[-*+]?[ \t]*(FROM|TO):[ \t]*`?###[ \t]*Requirement:[ \t]*(.+?)`?[ \t]*$", re.M)
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
 def require(valid, message):
@@ -56,26 +58,57 @@ def unique_object(pairs):
     return result
 
 
+def markdown_lines(text):
+    """Keep line offsets while masking headings and directives inside fences."""
+    active = None
+    for line in text.splitlines(keepends=True):
+        fence = FENCE.match(line)
+        if active is not None:
+            if fence and fence[1].startswith(active) and not fence[2].strip():
+                active = None
+            yield re.sub(r"[^\n]", " ", line)
+        elif fence:
+            active = fence[1]
+            yield re.sub(r"[^\n]", " ", line)
+        else:
+            yield line
+
+
 def spec_blocks(text):
-    headings = list(REQUIREMENT.finditer(text))
+    text = text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    masked = "".join(markdown_lines(text))
+    headings = list(REQUIREMENT.finditer(masked))
     blocks = {}
     for index, heading in enumerate(headings):
         end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
-        block = text[heading.start():end]
-        # A delta section heading belongs to the next requirement.
-        block = re.split(r"^## ", block, maxsplit=1, flags=re.M)[0].strip()
+        start = heading.start()
+        following = SECTION.search(masked, start, end)
+        if following:
+            end = following.start()
+        block = text[start:end].strip()
         key = heading[1]
         require(key not in blocks, f"Duplicate requirement ID in spec: {key}")
-        scenarios = SCENARIO.findall(block)
+        scenarios = SCENARIO.findall(masked[start:end])
         require(len(scenarios) == len(set(scenarios)), f"Duplicate scenario ID in {key}")
         blocks[key] = (block, set(scenarios))
-    for section in RENAME_SECTION.findall(text):
+    sections = list(SECTION.finditer(masked))
+    for index, heading in enumerate(sections):
+        end = sections[index + 1].start() if index + 1 < len(sections) else len(masked)
+        section = masked[heading.end():end]
+        label = " ".join(re.sub(r"[ \t]+#+[ \t]*$", "", heading[1]).lower().split())
+        if label == "removed requirements":
+            for name in REMOVED_LINE.findall(section):
+                key = name.split()[0]
+                require(key not in blocks, f"Duplicate requirement ID in spec: {key}")
+                blocks[key] = (f"REMOVE: {name}", set())
+        if label != "renamed requirements":
+            continue
         operations = RENAME_LINE.findall(section)
         require(operations and len(operations) % 2 == 0, "Expected FROM/TO pairs in RENAMED")
         seen = set()
         for (before, old), (after, new) in zip(operations[::2], operations[1::2]):
-            previous_id = old.strip("`").removeprefix("### Requirement: ").split()[0]
-            next_id = new.strip("`").removeprefix("### Requirement: ").split()[0]
+            previous_id = old.split()[0]
+            next_id = new.split()[0]
             require(before == "FROM" and after == "TO" and previous_id == next_id,
                     "Rename must keep the requirement ID and use FROM followed by TO")
             require(previous_id not in seen, f"Duplicate rename of {previous_id}")
@@ -159,12 +192,13 @@ def check(base, head, issue, kt1=KT1):
                             or re.fullmatch(rf"openspec/changes/archive/\d{{4}}-\d{{2}}-\d{{2}}-"
                                             rf"{re.escape(change_id)}/tasks\.md", p))
         require(len(task_paths) == 1, "Expected one active or archived tasks.md for this change")
-        task_text = read(task_paths[0])
-        declared = TASK.findall(task_text)
-        require(len(declared) == len(set(declared)) and tasks <= set(declared),
+        task_text = read(task_paths[0]).lstrip("\ufeff").replace("\r\n", "\n")
+        rows = TASK_LINE.findall(task_text)
+        declared = [match[1] for _, text in rows if (match := TASK_ID.match(text))]
+        require(len(rows) == len(declared) == len(set(declared)) and tasks <= set(declared),
                 "Slice tasks must refer to unique task IDs in tasks.md")
         if archive or any(spec.startswith("openspec/specs/") for spec in spec_paths):
-            require(not OPEN_TASK.search(task_text), "Cannot sync or archive with incomplete tasks")
+            require(all(mark in {"x", "X"} for mark, _ in rows), "Cannot sync or archive with incomplete tasks")
         require(all(re.fullmatch(rf"openspec/changes/archive/\d{{4}}-\d{{2}}-\d{{2}}-"
                                  rf"{re.escape(change_id)}/.+", p) for p in archive),
                 "Archive paths must belong to this change")
