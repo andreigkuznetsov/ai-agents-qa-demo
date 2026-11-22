@@ -1,0 +1,18 @@
+{
+  "change_id": "record-kt2-pr2-audit",
+  "issue": 3,
+  "kind": "tooling",
+  "reason": "Документальная запись завершённого аудита КТ2 PR 2 без изменения требований продукта.",
+  "scope": [
+    "docs/development/audit-log.md",
+    "openspec/verification/record-kt2-pr2-audit/record.json"
+  ],
+  "tasks": ["1.1"],
+  "targets": {},
+  "links": [
+    {
+      "task": "1.1",
+      "manual": "docs/development/audit-log.md"
+    }
+  ]
+}
