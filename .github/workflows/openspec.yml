@@ -1,0 +1,63 @@
+name: OpenSpec SDD
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify and run OpenSpec 2.1.1
+        env:
+          OPENSPEC_TELEMETRY: '0'
+        run: |
+          tool="$RUNNER_TEMP/openspec-2.1.1"
+          mkdir -p "$tool"
+          curl --fail --silent --show-error --location --max-time 90 \
+            https://github.com/Fission-AI/OpenSpec/releases/download/v2.1.1/openspec-linux-x64.tar.gz \
+            --output "$tool/openspec-linux-x64.tar.gz"
+          (
+            cd "$tool"
+            printf '%s\n' '22f0c7c96cc14138becb42aa98e589050c94cda793cbefd7e7ac2d7dee78b6d5  openspec-linux-x64.tar.gz' | sha256sum -c -
+            tar -xzf openspec-linux-x64.tar.gz openspec
+            printf '%s\n' '5d0fc1b5cd838f3859e35c203ee8bd6e2387b8c807da24a2b1bda626ef43be3d  openspec' | sha256sum -c -
+          )
+          test "$("$tool/openspec" --version)" = '2.1.1'
+          "$tool/openspec" validate --all --strict --no-interactive
+          "$tool/openspec" validate --archived --strict --no-interactive
+      - name: Read the linked Issue from GitHub Development
+        id: development
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            issue=$(gh pr view "$PR" --json closingIssuesReferences \
+              --jq '.closingIssuesReferences | if length == 1 then .[0].number else empty end')
+            if [[ "$issue" =~ ^[1-9][0-9]*$ ]]; then
+              printf 'issue=%s\n' "$issue" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo 'Expected exactly one linked Issue in GitHub Development' >&2
+          exit 1
+      - name: Check the exact PR scope and declared verification
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          ISSUE: ${{ steps.development.outputs.issue }}
+        run: python3 scripts/check-sdd.py --base "$BASE" --issue "$ISSUE"
+      - name: Test the SDD checker
+        run: python3 -m unittest discover -s scripts/tests -v
