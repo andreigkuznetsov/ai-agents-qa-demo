@@ -1,0 +1,31 @@
+name: Backend CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Lint, format, type check and unit tests
+        run: docker build --progress=plain --target checks ./backend
+      - name: Build runtime image
+        run: docker build --progress=plain --tag ai-agents-qa-demo:ci ./backend
+      - name: Smoke test the liveness endpoint
+        run: |
+          container=$(docker run --detach --rm --publish 127.0.0.1:18080:8080 \
+            --env UVICORN_PORT=8080 ai-agents-qa-demo:ci)
+          trap 'docker logs "$container"; docker stop "$container"' EXIT
+          response=$(curl --fail --silent --show-error --retry 10 \
+            --retry-connrefused --retry-max-time 20 --max-time 2 \
+            http://127.0.0.1:18080/health/live)
+          test "$response" = '{"status":"ok"}'
