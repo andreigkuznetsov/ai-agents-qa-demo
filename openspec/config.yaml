@@ -1,0 +1,23 @@
+schema: spec-driven
+
+context: |
+  Read AGENTS.md and docs/development/sdd-process.md before using workflow skills.
+  The normative KT1 baseline is docs/KT1_BASELINE.md and its linked materials.
+  Link docs/02_REQUIREMENTS.md and docs/03_SCENARIOS.md using original REQ-XXX and
+  S01–S06 IDs. Write only new approved behavior in OpenSpec. DEC-01–07 remain open.
+  Use spec requirement IDs AC-* and scenario IDs SC-* for new obligations.
+  Work in Russian, preserving identifiers and original error messages.
+
+rules:
+  proposal:
+    - Record the GitHub Issue, change ID, scope and out-of-scope items.
+  tasks:
+    - Use numbered Markdown checkboxes and associate scenarios with verification.
+
+operations:
+  apply:
+    guidance:
+      - Require the recorded requirements, design and task approvals before implementation.
+  archive:
+    guidance:
+      - Sync and archive only after all slices and their evidence have been accepted.

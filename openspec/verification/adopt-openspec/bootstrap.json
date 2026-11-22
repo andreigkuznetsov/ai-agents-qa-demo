@@ -1,0 +1,66 @@
+{
+  "change_id": "adopt-openspec",
+  "issue": 5,
+  "kind": "tooling",
+  "reason": "Bootstrap approved in Issue #5; no product requirements change.",
+  "scope": [
+    ".agents/skills/.openspec-target",
+    ".agents/skills/openspec-apply-change/SKILL.md",
+    ".agents/skills/openspec-archive-change/SKILL.md",
+    ".agents/skills/openspec-explore/SKILL.md",
+    ".agents/skills/openspec-propose/SKILL.md",
+    ".agents/skills/openspec-sync-specs/SKILL.md",
+    ".agents/skills/openspec-update-change/SKILL.md",
+    ".github/workflows/openspec.yml",
+    "AGENTS.md",
+    "docs/development/sdd-process.md",
+    "openspec/config.yaml",
+    "openspec/changes/archive/.gitkeep",
+    "openspec/specs/.gitkeep",
+    "openspec/verification/adopt-openspec/bootstrap.json",
+    "scripts/check-sdd.py",
+    "scripts/tests/test_check_sdd.py"
+  ],
+  "tasks": [
+    "1.1"
+  ],
+  "targets": {},
+  "links": [
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_valid_slice_can_reference_existing_test"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_kt1_edit_forbidden_even_inside_scope"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_changed_spec_scenario_without_target"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_other_change_delta_rejected_even_in_scope"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_empty_manual_evidence_is_rejected"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_rename_in_mixed_delta_requires_own_target"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_nested_delta_requires_target"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_nested_sync_requires_all_markdown_tasks_complete"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_removed_list_entry_can_be_mapped"
+    }
+  ]
+}
