@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:18.7-bookworm@sha256:194e55feb2597b1465dbee81cc9fd8d204566cd2eb42c8d22fd6c931a38781b1
+    environment:
+      POSTGRES_DB: qa_demo
+      POSTGRES_USER: qa_admin
+      POSTGRES_PASSWORD: ${QA_BOOTSTRAP_PASSWORD:?Set QA_BOOTSTRAP_PASSWORD}
+      QA_MIGRATE_PASSWORD: ${QA_MIGRATE_PASSWORD:?Set QA_MIGRATE_PASSWORD}
+      QA_API_PASSWORD: ${QA_API_PASSWORD:?Set QA_API_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql
+      - ./postgres/bootstrap.sh:/docker-entrypoint-initdb.d/01-qa.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "qa_admin", "-d", "qa_demo", "-t", "1"]
+      interval: 2s
+      timeout: 1s
+      retries: 20
+  migrate:
+    image: ${QA_APP_IMAGE:-ai-agents-qa-demo:local}
+    command: ["timeout", "--kill-after=1s", "29s", "/app/.venv/bin/python", "-m", "app.migrate"]
+    environment:
+      QA_DB_PASSWORD: ${QA_MIGRATE_PASSWORD:?Set QA_MIGRATE_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    image: ${QA_APP_IMAGE:-ai-agents-qa-demo:local}
+    build: ./backend
+    environment:
+      QA_DB_PASSWORD: ${QA_API_PASSWORD:?Set QA_API_PASSWORD}
+      QA_READINESS_TIMEOUT: ${QA_READINESS_TIMEOUT:-3}
+      QA_CONNECT_TIMEOUT: ${QA_CONNECT_TIMEOUT:-2}
+      QA_SQL_TIMEOUT_MS: ${QA_SQL_TIMEOUT_MS:-1000}
+      QA_POOL_TIMEOUT: ${QA_POOL_TIMEOUT:-1}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${QA_HTTP_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4).close()"]
+      interval: 2s
+      timeout: 5s
+      retries: 7
+
+volumes:
+  postgres:

@@ -13,15 +13,17 @@ RUN uv sync --locked --no-dev --no-cache
 FROM dependencies AS checks
 RUN uv sync --locked --no-cache
 COPY app/ app/
+COPY migrations/ migrations/
 COPY tests/ tests/
-RUN .venv/bin/ruff check . \
-    && .venv/bin/ruff format --check . \
-    && .venv/bin/mypy app tests \
+RUN .venv/bin/ruff check app migrations tests \
+    && .venv/bin/ruff format --check app migrations tests \
+    && .venv/bin/mypy app migrations tests \
     && .venv/bin/python -m pytest
 
 FROM base AS runtime
 COPY --from=dependencies /app/.venv .venv/
 COPY app/ app/
+COPY migrations/ migrations/
 ENV UVICORN_HOST=0.0.0.0 UVICORN_PORT=8000 WEB_CONCURRENCY=1
 USER 10001:10001
 EXPOSE 8000
