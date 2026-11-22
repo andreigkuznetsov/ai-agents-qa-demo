@@ -44,13 +44,13 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           for attempt in 1 2 3 4 5; do
-            issue=$(gh pr view "$PR" --json closingIssuesReferences \
-              --jq '.closingIssuesReferences | if length == 1 then .[0].number else empty end')
-            if [[ "$issue" =~ ^[1-9][0-9]*$ ]]; then
+            if issue=$(timeout 15s gh pr view "$PR" --json closingIssuesReferences \
+              --jq '.closingIssuesReferences | if length == 1 then .[0].number else empty end') \
+              && [[ "$issue" =~ ^[1-9][0-9]*$ ]]; then
               printf 'issue=%s\n' "$issue" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            sleep 3
+            if (( attempt < 5 )); then sleep 3; fi
           done
           echo 'Expected exactly one linked Issue in GitHub Development' >&2
           exit 1

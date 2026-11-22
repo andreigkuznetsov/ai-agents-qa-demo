@@ -37,6 +37,18 @@
     {
       "task": "1.1",
       "test": "scripts/tests/test_check_sdd.py::SDDTests::test_changed_spec_scenario_without_target"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_other_change_delta_rejected_even_in_scope"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_empty_manual_evidence_is_rejected"
+    },
+    {
+      "task": "1.1",
+      "test": "scripts/tests/test_check_sdd.py::SDDTests::test_rename_in_mixed_delta_requires_own_target"
     }
   ]
 }

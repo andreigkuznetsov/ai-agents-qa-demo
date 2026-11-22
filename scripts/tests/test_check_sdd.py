@@ -165,3 +165,63 @@ class SDDTests(unittest.TestCase):
         self.write(spec, "### Requirement: AC-1 Example\n#### Scenario: SC-1 Example\n")
         with self.assertRaisesRegex(ValueError, "Cannot sync or archive with incomplete tasks"):
             self.verify()
+
+    def test_other_change_delta_rejected_even_in_scope(self):
+        other = DELTA.replace("/sample/", "/another/")
+        self.record["scope"].append(other)
+        self.write(other, "## ADDED Requirements\n### Requirement: AC-1 Example\n")
+        with self.assertRaisesRegex(ValueError, "Changed active artifacts must belong"):
+            self.verify()
+
+    def test_other_change_spec_target_rejected(self):
+        other = DELTA.replace("/sample/", "/another/")
+        task_text = Path(TASKS).read_text(encoding="utf-8")
+        Path(TASKS).unlink()
+        self.write(other, "## ADDED Requirements\n### Requirement: AC-1 Example\n")
+        self.base = self.commit()
+        self.write(TASKS, task_text)
+        self.record["targets"]["a"] = {"requirement": "AC-1", "spec": other}
+        with self.assertRaisesRegex(ValueError, "Spec target must belong"):
+            self.verify()
+
+    def test_empty_manual_evidence_is_rejected(self):
+        evidence = "docs/development/sample-proof.md"
+        self.record["scope"].append(evidence)
+        self.record["links"][0].pop("test")
+        self.record["links"][0]["manual"] = evidence
+        self.write(evidence, "Nothing has been checked.\n")
+        with self.assertRaisesRegex(ValueError, "Manual verification needs"):
+            self.verify()
+
+    def test_structured_manual_evidence_is_accepted_as_a_reference(self):
+        evidence = "docs/development/sample-proof.md"
+        self.record["scope"].append(evidence)
+        self.record["links"][0].pop("test")
+        self.record["links"][0]["manual"] = evidence
+        self.write(evidence, "Command: inspect output\nResult: PASS\nEvidence: output fixture\n")
+        self.assertEqual(self.verify(), ("sample", 1, "implementation"))
+
+    def test_rename_alone_can_be_mapped(self):
+        self.record["scope"].append(DELTA)
+        self.write(DELTA, "## RENAMED Requirements\n- FROM: `### Requirement: AC-1 Example`\n"
+                   "- TO: `### Requirement: AC-1 New title`\n")
+        self.record["targets"]["a"] = {"requirement": "AC-1", "spec": DELTA}
+        self.assertEqual(self.verify(), ("sample", 1, "implementation"))
+
+    def test_rename_in_mixed_delta_requires_own_target(self):
+        self.add_delta()
+        with Path(DELTA).open("a", encoding="utf-8") as file:
+            file.write("\n## RENAMED Requirements\n- FROM: `### Requirement: AC-2 Old`\n"
+                       "- TO: `### Requirement: AC-2 New`\n")
+        self.record["targets"]["a"] = {
+            "requirement": "AC-1", "scenario": "SC-1", "spec": DELTA,
+        }
+        with self.assertRaisesRegex(ValueError, "AC-2/None"):
+            self.verify()
+
+    def test_rename_cannot_change_requirement_id(self):
+        self.record["scope"].append(DELTA)
+        self.write(DELTA, "## RENAMED Requirements\n- FROM: `### Requirement: AC-1 Example`\n"
+                   "- TO: `### Requirement: AC-2 New title`\n")
+        with self.assertRaisesRegex(ValueError, "Rename must keep the requirement ID"):
+            self.verify()

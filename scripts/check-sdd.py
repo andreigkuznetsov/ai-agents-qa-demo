@@ -16,6 +16,8 @@ TASK = re.compile(r"^\s*- \[[ xX]\] ([0-9]+(?:\.[0-9]+)*) ", re.M)
 OPEN_TASK = re.compile(r"^\s*- \[ \] ", re.M)
 REQUIREMENT = re.compile(r"^### Requirement: (\S+)[^\n]*", re.M)
 SCENARIO = re.compile(r"^#### Scenario: (\S+)[^\n]*", re.M)
+RENAME_SECTION = re.compile(r"^## RENAMED Requirements[ \t]*\n([^\n]*(?:\n(?!## )[^\n]*)*)", re.M)
+RENAME_LINE = re.compile(r"^[ \t]*- (FROM|TO):[ \t]*(.+?)[ \t]*$", re.M)
 
 
 def require(valid, message):
@@ -67,6 +69,19 @@ def spec_blocks(text):
         scenarios = SCENARIO.findall(block)
         require(len(scenarios) == len(set(scenarios)), f"Duplicate scenario ID in {key}")
         blocks[key] = (block, set(scenarios))
+    for section in RENAME_SECTION.findall(text):
+        operations = RENAME_LINE.findall(section)
+        require(operations and len(operations) % 2 == 0, "Expected FROM/TO pairs in RENAMED")
+        seen = set()
+        for (before, old), (after, new) in zip(operations[::2], operations[1::2]):
+            previous_id = old.strip("`").removeprefix("### Requirement: ").split()[0]
+            next_id = new.strip("`").removeprefix("### Requirement: ").split()[0]
+            require(before == "FROM" and after == "TO" and previous_id == next_id,
+                    "Rename must keep the requirement ID and use FROM followed by TO")
+            require(previous_id not in seen, f"Duplicate rename of {previous_id}")
+            seen.add(previous_id)
+            block, scenarios = blocks.get(previous_id, ("", set()))
+            blocks[previous_id] = (block + f"\nFROM: {old}\nTO: {new}", scenarios)
     return blocks
 
 
@@ -117,6 +132,14 @@ def check(base, head, issue, kt1=KT1):
     spec_paths = {p for p in changed if SPEC.fullmatch(p)}
     archive = {p for p in changed if p.startswith("openspec/changes/archive/") and not p.endswith("/.gitkeep")}
     require(not archive & old_files, "Existing archived artifacts are immutable")
+
+    def owns_active(path):
+        return not path.startswith("openspec/changes/") or path.startswith(
+            (f"openspec/changes/{change_id}/", "openspec/changes/archive/")
+        )
+
+    require(all(owns_active(path) for path in changed),
+            "Changed active artifacts must belong to this change")
     for path in sorted(changed & files):
         if path.startswith(("openspec/changes/", "openspec/specs/")) and path.endswith(".md"):
             text = read(path)
@@ -163,6 +186,7 @@ def check(base, head, issue, kt1=KT1):
                     "A non-KT1 target needs a spec path")
             continue
         repo_path(spec)
+        require(owns_active(spec), f"Spec target must belong to this change: {spec}")
         require(SPEC.fullmatch(spec) and (spec in files or spec in old_files),
                 f"Unknown spec path: {spec}")
         blocks = [spec_blocks(read(spec, ref)).get(requirement)
@@ -204,8 +228,12 @@ def check(base, head, issue, kt1=KT1):
                     and sep and test_exists(read(path), selector), f"Test not found: {test}")
         else:
             repo_path(manual)
-            require(manual in files and manual.endswith(".md") and read(manual).strip(),
+            require(manual in files and manual.endswith(".md"),
                     f"Manual verification record not found: {manual}")
+            evidence = read(manual)
+            require(all(re.search(rf"^{field}:[ \t]+\S.*$", evidence, re.M) for field in ("Command", "Evidence"))
+                    and re.search(r"^Result:[ \t]+PASS[ \t]*$", evidence, re.M),
+                    f"Manual verification needs Command, Result: PASS, and Evidence: {manual}")
         covered_tasks.add(task)
         if target is not None:
             covered_targets.add(target)
@@ -222,7 +250,7 @@ def main():
     args = parser.parse_args()
     try:
         change, links, kind = check(args.base, args.head, args.issue)
-    except (ValueError, KeyError, TypeError, AttributeError, SyntaxError, subprocess.CalledProcessError) as error:
+    except (ValueError, LookupError, TypeError, AttributeError, SyntaxError, subprocess.CalledProcessError) as error:
         print(f"SDD check failed: {error}", file=sys.stderr)
         return 1
     print(f"SDD declarations OK: {change} ({kind}, {links} links). Test execution is separate.")
