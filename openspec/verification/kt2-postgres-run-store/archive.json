@@ -1,0 +1,211 @@
+{
+  "change_id": "kt2-postgres-run-store",
+  "issue": 3,
+  "kind": "implementation",
+  "scope": [
+    "README.md",
+    "openspec/changes/archive/2026-11-22-kt2-postgres-run-store/.openspec.yaml",
+    "openspec/changes/archive/2026-11-22-kt2-postgres-run-store/design.md",
+    "openspec/changes/archive/2026-11-22-kt2-postgres-run-store/proposal.md",
+    "openspec/changes/archive/2026-11-22-kt2-postgres-run-store/specs/postgres-runtime/spec.md",
+    "openspec/changes/archive/2026-11-22-kt2-postgres-run-store/specs/run-store/spec.md",
+    "openspec/changes/archive/2026-11-22-kt2-postgres-run-store/tasks.md",
+    "openspec/changes/kt2-postgres-run-store/.openspec.yaml",
+    "openspec/changes/kt2-postgres-run-store/design.md",
+    "openspec/changes/kt2-postgres-run-store/proposal.md",
+    "openspec/changes/kt2-postgres-run-store/specs/postgres-runtime/spec.md",
+    "openspec/changes/kt2-postgres-run-store/specs/run-store/spec.md",
+    "openspec/changes/kt2-postgres-run-store/tasks.md",
+    "openspec/specs/postgres-runtime/spec.md",
+    "openspec/specs/run-store/spec.md",
+    "openspec/verification/kt2-postgres-run-store/archive.json"
+  ],
+  "tasks": [
+    "1.1",
+    "1.2",
+    "1.3",
+    "1.4",
+    "1.5",
+    "1.6",
+    "1.7",
+    "1.8",
+    "1.9",
+    "2.1",
+    "2.2",
+    "2.3",
+    "2.4",
+    "3.1",
+    "3.2",
+    "3.3",
+    "4.1"
+  ],
+  "targets": {
+    "SC-PG-001": {
+      "requirement": "AC-PG-001",
+      "scenario": "SC-PG-001",
+      "spec": "openspec/specs/postgres-runtime/spec.md"
+    },
+    "SC-PG-002": {
+      "requirement": "AC-PG-001",
+      "scenario": "SC-PG-002",
+      "spec": "openspec/specs/postgres-runtime/spec.md"
+    },
+    "SC-PG-003": {
+      "requirement": "AC-PG-002",
+      "scenario": "SC-PG-003",
+      "spec": "openspec/specs/postgres-runtime/spec.md"
+    },
+    "SC-PG-004": {
+      "requirement": "AC-PG-003",
+      "scenario": "SC-PG-004",
+      "spec": "openspec/specs/postgres-runtime/spec.md"
+    },
+    "SC-PG-005": {
+      "requirement": "AC-PG-003",
+      "scenario": "SC-PG-005",
+      "spec": "openspec/specs/postgres-runtime/spec.md"
+    },
+    "SC-PG-006": {
+      "requirement": "AC-PG-003",
+      "scenario": "SC-PG-006",
+      "spec": "openspec/specs/postgres-runtime/spec.md"
+    },
+    "SC-PG-007": {
+      "requirement": "AC-PG-004",
+      "scenario": "SC-PG-007",
+      "spec": "openspec/specs/postgres-runtime/spec.md"
+    },
+    "SC-PG-008": {
+      "requirement": "AC-PG-003",
+      "scenario": "SC-PG-008",
+      "spec": "openspec/specs/postgres-runtime/spec.md"
+    },
+    "SC-RUN-001": {
+      "requirement": "AC-RUN-001",
+      "scenario": "SC-RUN-001",
+      "spec": "openspec/specs/run-store/spec.md"
+    },
+    "SC-RUN-002": {
+      "requirement": "AC-RUN-001",
+      "scenario": "SC-RUN-002",
+      "spec": "openspec/specs/run-store/spec.md"
+    },
+    "SC-RUN-003": {
+      "requirement": "AC-RUN-002",
+      "scenario": "SC-RUN-003",
+      "spec": "openspec/specs/run-store/spec.md"
+    }
+  },
+  "links": [
+    {
+      "task": "1.4",
+      "target": "SC-PG-001",
+      "test": "backend/tests/test_permissions.py::test_update_rejects_privilege_drift"
+    },
+    {
+      "task": "2.2",
+      "target": "SC-PG-002",
+      "test": "backend/tests/test_permissions.py::test_update_rejects_privilege_drift"
+    },
+    {
+      "task": "1.8",
+      "target": "SC-PG-008",
+      "test": "backend/tests/test_readiness_pool.py::test_asgi_disconnect_releases_connection"
+    },
+    {
+      "task": "2.4",
+      "target": "SC-PG-002",
+      "test": "backend/tests/test_migrations.py::test_migration_process_deadline"
+    },
+    {
+      "task": "1.7",
+      "target": "SC-PG-005",
+      "test": "backend/tests/test_health_postgres.py::test_db_recovery"
+    },
+    {
+      "task": "1.1",
+      "target": "SC-PG-001",
+      "test": "backend/tests/test_migrations.py::test_clean_start"
+    },
+    {
+      "task": "1.2",
+      "target": "SC-PG-001",
+      "test": "backend/tests/test_migrations.py::test_clean_start"
+    },
+    {
+      "task": "2.1",
+      "target": "SC-PG-001",
+      "test": "backend/tests/test_migrations.py::test_clean_start"
+    },
+    {
+      "task": "4.1",
+      "target": "SC-PG-001",
+      "test": "backend/tests/test_migrations.py::test_clean_start"
+    },
+    {
+      "task": "1.3",
+      "target": "SC-PG-001",
+      "test": "backend/tests/test_migrations.py::test_failed_migration_rolls_back"
+    },
+    {
+      "task": "2.3",
+      "target": "SC-PG-001",
+      "test": "backend/tests/test_migrations.py::test_failed_migration_rolls_back"
+    },
+    {
+      "task": "1.2",
+      "target": "SC-PG-003",
+      "test": "backend/tests/test_migrations.py::test_repeat_preserves_schema_and_row"
+    },
+    {
+      "task": "1.7",
+      "target": "SC-PG-004",
+      "test": "backend/tests/test_health_postgres.py::test_db_outage"
+    },
+    {
+      "task": "3.2",
+      "target": "SC-PG-004",
+      "test": "backend/tests/test_health_postgres.py::test_db_outage"
+    },
+    {
+      "task": "3.3",
+      "target": "SC-PG-005",
+      "test": "backend/tests/test_readiness_pool.py::test_recovers_without_connection_leaks"
+    },
+    {
+      "task": "1.5",
+      "target": "SC-PG-006",
+      "test": "backend/tests/test_health_postgres.py::test_incompatible_revision"
+    },
+    {
+      "task": "3.1",
+      "target": "SC-PG-006",
+      "test": "backend/tests/test_health_postgres.py::test_incompatible_revision"
+    },
+    {
+      "task": "1.9",
+      "target": "SC-PG-007",
+      "test": "backend/tests/test_compose_local.py::test_network_bindings"
+    },
+    {
+      "task": "1.6",
+      "target": "SC-PG-008",
+      "test": "backend/tests/test_run_store.py::test_cancelled_write_recovery"
+    },
+    {
+      "task": "1.5",
+      "target": "SC-RUN-001",
+      "test": "backend/tests/test_run_store.py::test_address_two_runs"
+    },
+    {
+      "task": "1.5",
+      "target": "SC-RUN-002",
+      "test": "backend/tests/test_run_store.py::test_duplicate_run_id"
+    },
+    {
+      "task": "1.9",
+      "target": "SC-RUN-003",
+      "test": "backend/tests/test_compose_local.py::test_runs_survive_stop_start"
+    }
+  ]
+}
