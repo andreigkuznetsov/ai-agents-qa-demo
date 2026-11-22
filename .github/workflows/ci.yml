@@ -26,6 +26,6 @@ jobs:
             --env UVICORN_PORT=8080 ai-agents-qa-demo:ci)
           trap 'docker logs "$container"; docker stop "$container"' EXIT
           response=$(curl --fail --silent --show-error --retry 10 \
-            --retry-connrefused --retry-max-time 20 --max-time 2 \
+            --retry-all-errors --retry-delay 1 --retry-max-time 20 --max-time 2 \
             http://127.0.0.1:18080/health/live)
           test "$response" = '{"status":"ok"}'
