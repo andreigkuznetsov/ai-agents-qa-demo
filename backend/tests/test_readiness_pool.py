@@ -244,5 +244,7 @@ def test_asgi_disconnect_releases_connection(
                     assert db.engine.pool.checkedout() == 0  # type: ignore[attr-defined]
             await recover(db, ready)
 
-    monkeypatch.setenv("QA_SQL_TIMEOUT_MS", "5000")
+    # Keep both backend timeouts outside the assertion window while the lock is held.
+    monkeypatch.setenv("QA_READINESS_TIMEOUT", "12")
+    monkeypatch.setenv("QA_SQL_TIMEOUT_MS", "10000")
     run(migrated_db, monkeypatch, verify)
