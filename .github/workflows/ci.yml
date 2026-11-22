@@ -62,16 +62,20 @@ jobs:
             exit 1
           fi
 
-      - name: Test migration, permissions and failure handling on isolated PostgreSQL
-        env:
-          QA_RUN_POSTGRES_TESTS: '1'
-          QA_IT_IMAGE: ai-agents-qa-demo:ci
+      - name: Prepare the isolated PostgreSQL test environment
         run: |
           tool=$(docker create ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d)
           docker cp "$tool:/uv" "$RUNNER_TEMP/uv"
           docker rm "$tool"
           docker compose version
-          docker pull postgres:18.7-bookworm@sha256:194e55feb2597b1465dbee81cc9fd8d204566cd2eb42c8d22fd6c931a38781b1
+          timeout 90s docker pull postgres:18.7-bookworm@sha256:194e55feb2597b1465dbee81cc9fd8d204566cd2eb42c8d22fd6c931a38781b1
           cd backend
-          "$RUNNER_TEMP/uv" sync --locked --python 3.13.18
-          .venv/bin/python -m pytest -v -p no:cacheprovider --junitxml "$RUNNER_TEMP/postgres-tests.xml"
+          timeout 90s "$RUNNER_TEMP/uv" sync --locked --python 3.13.18
+
+      - name: Test migration, permissions and failure handling on isolated PostgreSQL
+        env:
+          QA_RUN_POSTGRES_TESTS: '1'
+          QA_IT_IMAGE: ai-agents-qa-demo:ci
+        working-directory: backend
+        run: |
+          .venv/bin/python -m pytest -vx -p no:cacheprovider --durations=12 --junitxml "$RUNNER_TEMP/postgres-tests.xml"

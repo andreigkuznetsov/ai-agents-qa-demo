@@ -91,9 +91,9 @@ def upgrade() -> None:
 def main() -> int:
     try:
         upgrade()
-    except Exception:
+    except Exception as error:
         print(
-            "migration failed: PostgreSQL configuration, revision or transaction",
+            f"migration failed: PostgreSQL configuration, revision or transaction ({type(error).__name__})",
             file=sys.stderr,
         )
         return 1

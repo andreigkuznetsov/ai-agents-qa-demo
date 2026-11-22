@@ -60,7 +60,7 @@ class Project:
         return result
 
     def start(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-        return self.command(
+        result = self.command(
             sys.executable,
             str(ROOT / "scripts/start-local.py"),
             "--project",
@@ -68,8 +68,17 @@ class Project:
             "--env-file",
             os.devnull,
             *args,
-            check=check,
+            check=False,
         )
+        if check and result.returncode:
+            error = result.stderr + result.stdout
+            error += self.compose(
+                "logs", "--no-color", "db", "migrate", "api", check=False
+            )
+            for secret in self.passwords.values():
+                error = error.replace(secret, "[redacted]")
+            pytest.fail(f"startup exited {result.returncode}: {error[-12000:]}")
+        return result
 
     def inspect(self, service: str) -> dict[str, object]:
         cid = self.compose("ps", "-aq", service)
@@ -135,4 +144,12 @@ def fresh() -> Iterator[Project]:
 @pytest.fixture
 def migrated(fresh: Project) -> Project:
     fresh.start()
+    return fresh
+
+
+@pytest.fixture
+def migrated_db(fresh: Project) -> Project:
+    # Direct storage and pool tests own all API sessions in this PostgreSQL.
+    fresh.compose("up", "-d", "--wait", "--wait-timeout", "40", "db")
+    fresh.compose("run", "--rm", "--no-deps", "migrate")
     return fresh

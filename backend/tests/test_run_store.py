@@ -11,8 +11,10 @@ from app.database import Database, Settings
 from app.run_store import RunStore
 
 
-def test_address_two_runs(migrated: Project, monkeypatch: pytest.MonkeyPatch) -> None:
-    migrated.api_env(monkeypatch)
+def test_address_two_runs(
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    migrated_db.api_env(monkeypatch)
 
     async def verify() -> None:
         db = Database(Settings.from_env())
@@ -30,7 +32,7 @@ def test_address_two_runs(migrated: Project, monkeypatch: pytest.MonkeyPatch) ->
             await db.close()
 
     asyncio.run(verify())
-    with migrated.db("api") as conn:
+    with migrated_db.db("api") as conn:
         assert conn.execute("""
             SELECT column_name FROM information_schema.columns
             WHERE table_schema='qa' AND table_name='runs' ORDER BY ordinal_position
@@ -42,8 +44,10 @@ def test_address_two_runs(migrated: Project, monkeypatch: pytest.MonkeyPatch) ->
         ]
 
 
-def test_commit_visibility(migrated: Project, monkeypatch: pytest.MonkeyPatch) -> None:
-    migrated.api_env(monkeypatch)
+def test_commit_visibility(
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    migrated_db.api_env(monkeypatch)
 
     async def verify() -> None:
         db = Database(Settings.from_env())
@@ -61,7 +65,7 @@ def test_commit_visibility(migrated: Project, monkeypatch: pytest.MonkeyPatch) -
             )
             row = await RunStore(db).create()
             assert transactions == ["begin", "commit"]
-            with migrated.db("api") as other:
+            with migrated_db.db("api") as other:
                 assert other.execute("SELECT * FROM qa.runs").fetchone() == (
                     row.run_id,
                     row.schema_version,
@@ -74,8 +78,10 @@ def test_commit_visibility(migrated: Project, monkeypatch: pytest.MonkeyPatch) -
     asyncio.run(verify())
 
 
-def test_duplicate_run_id(migrated: Project, monkeypatch: pytest.MonkeyPatch) -> None:
-    migrated.api_env(monkeypatch)
+def test_duplicate_run_id(
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    migrated_db.api_env(monkeypatch)
 
     async def verify() -> None:
         db = Database(Settings.from_env())
@@ -89,15 +95,15 @@ def test_duplicate_run_id(migrated: Project, monkeypatch: pytest.MonkeyPatch) ->
             await db.close()
 
     asyncio.run(verify())
-    with migrated.db("api") as conn:
+    with migrated_db.db("api") as conn:
         assert conn.execute("SELECT count(*) FROM qa.runs").fetchone() == (1,)
 
 
 def test_revision_gate_before_storage(
-    migrated: Project, monkeypatch: pytest.MonkeyPatch
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    migrated.api_env(monkeypatch)
-    with migrated.db() as admin:
+    migrated_db.api_env(monkeypatch)
+    with migrated_db.db() as admin:
         admin.execute("DELETE FROM qa.alembic_version")
 
     async def verify() -> None:
@@ -127,9 +133,9 @@ def test_revision_gate_before_storage(
 
 
 def test_cancelled_write_recovery(
-    migrated: Project, monkeypatch: pytest.MonkeyPatch
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    migrated.api_env(monkeypatch)
+    migrated_db.api_env(monkeypatch)
     from sqlalchemy.ext.asyncio import AsyncTransaction
 
     async def verify() -> None:

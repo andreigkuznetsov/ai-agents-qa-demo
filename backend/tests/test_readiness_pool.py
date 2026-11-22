@@ -25,11 +25,11 @@ async def runtime() -> AsyncIterator[tuple[Database, Readiness]]:
 
 
 def run(
-    migrated: Project,
+    migrated_db: Project,
     monkeypatch: pytest.MonkeyPatch,
     check: Callable[[], Awaitable[None]],
 ) -> None:
-    migrated.api_env(monkeypatch)
+    migrated_db.api_env(monkeypatch)
 
     async def execute() -> None:
         await check()
@@ -53,7 +53,7 @@ async def unavailable(ready: Readiness) -> float:
     return elapsed
 
 
-def test_connect_timeout(migrated: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_connect_timeout(migrated_db: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     async def verify() -> None:
         async with runtime() as (db, ready):
             # Forward the real PostgreSQL startup packet, then withhold the server reply.
@@ -68,7 +68,7 @@ def test_connect_timeout(migrated: Project, monkeypatch: pytest.MonkeyPatch) -> 
                 opened.add(peer)
                 upstream: asyncio.StreamWriter | None = None
                 try:
-                    _, upstream = await asyncio.open_connection(migrated.host, 5432)
+                    _, upstream = await asyncio.open_connection(migrated_db.host, 5432)
                     upstream.write(await client.read(65536))
                     await upstream.drain()
                     accepted.set()
@@ -99,34 +99,34 @@ def test_connect_timeout(migrated: Project, monkeypatch: pytest.MonkeyPatch) -> 
                 await asyncio.gather(*peers, return_exceptions=True)
             await recover(db, ready)
 
-    run(migrated, monkeypatch, verify)
+    run(migrated_db, monkeypatch, verify)
 
 
-def test_sql_deadline(migrated: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sql_deadline(migrated_db: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     async def verify() -> None:
         async with runtime() as (db, ready):
             assert await ready.check()
-            with migrated.db() as admin:
+            with migrated_db.db() as admin:
                 admin.execute("LOCK TABLE qa.alembic_version IN ACCESS EXCLUSIVE MODE")
                 assert 0.7 <= await unavailable(ready)
             await recover(db, ready)
 
-    run(migrated, monkeypatch, verify)
+    run(migrated_db, monkeypatch, verify)
 
 
-def test_pool_exhaustion(migrated: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pool_exhaustion(migrated_db: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     async def verify() -> None:
         async with runtime() as (db, ready):
             async with db.engine.connect(), db.engine.connect():
                 assert 0.7 <= await unavailable(ready)
                 assert db.engine.pool.checkedout() == 2  # type: ignore[attr-defined]
-                with migrated.db() as admin:
+                with migrated_db.db() as admin:
                     assert admin.execute(
                         "SELECT count(*) FROM pg_stat_activity WHERE usename='qa_api' AND application_name='qa-api'"
                     ).fetchone() == (2,)
             await recover(db, ready)
 
-    run(migrated, monkeypatch, verify)
+    run(migrated_db, monkeypatch, verify)
 
 
 async def until_blocked(admin: psycopg.Connection[tuple[object, ...]]) -> None:
@@ -143,12 +143,12 @@ async def until_blocked(admin: psycopg.Connection[tuple[object, ...]]) -> None:
 
 
 def test_readiness_cancellation(
-    migrated: Project, monkeypatch: pytest.MonkeyPatch
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def verify() -> None:
         async with runtime() as (db, ready):
             for two_waiters in (False, True):
-                with migrated.db() as admin:
+                with migrated_db.db() as admin:
                     admin.execute(
                         "LOCK TABLE qa.alembic_version IN ACCESS EXCLUSIVE MODE"
                     )
@@ -168,16 +168,16 @@ def test_readiness_cancellation(
                     assert await second
                 await recover(db, ready)
 
-    run(migrated, monkeypatch, verify)
+    run(migrated_db, monkeypatch, verify)
 
 
 def test_recovers_without_connection_leaks(
-    migrated: Project, monkeypatch: pytest.MonkeyPatch
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def verify() -> None:
         async with runtime() as (db, ready):
             for _ in range(3):
-                with migrated.db() as admin:
+                with migrated_db.db() as admin:
                     admin.execute(
                         "LOCK TABLE qa.alembic_version IN ACCESS EXCLUSIVE MODE"
                     )
@@ -188,7 +188,7 @@ def test_recovers_without_connection_leaks(
                     with pytest.raises(asyncio.CancelledError):
                         await check
                 await recover(db, ready)
-                with migrated.db() as admin:
+                with migrated_db.db() as admin:
                     total, stuck = admin.execute("""
                         SELECT count(*), count(*) FILTER (WHERE state LIKE 'idle in transaction%')
                         FROM pg_stat_activity WHERE application_name='qa-api'
@@ -196,4 +196,4 @@ def test_recovers_without_connection_leaks(
                     assert isinstance(total, int) and 0 < total <= 2
                     assert stuck == 0
 
-    run(migrated, monkeypatch, verify)
+    run(migrated_db, monkeypatch, verify)

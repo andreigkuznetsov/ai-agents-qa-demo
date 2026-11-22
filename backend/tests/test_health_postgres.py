@@ -50,13 +50,13 @@ def test_incompatible_revision(migrated: Project, statement: str) -> None:
 
 
 def test_http_global_deadline(
-    migrated: Project, monkeypatch: pytest.MonkeyPatch
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    migrated.api_env(monkeypatch)
+    migrated_db.api_env(monkeypatch)
     monkeypatch.setenv("QA_SQL_TIMEOUT_MS", "6000")
     with TestClient(app) as client:
         assert client.get("/health/ready").status_code == 200
-        with migrated.db() as admin:
+        with migrated_db.db() as admin:
             admin.execute("LOCK TABLE qa.alembic_version IN ACCESS EXCLUSIVE MODE")
             for path in ("/health/ready", "/healthz"):
                 started = time.monotonic()
