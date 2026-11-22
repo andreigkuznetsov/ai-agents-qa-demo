@@ -12,7 +12,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project")
     parser.add_argument("--env-file")
-    parser.add_argument("--update", action="store_true", help="Update after stopping API and taking a backup")
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Update after stopping API and taking a backup",
+    )
     parser.add_argument("--startup-timeout", type=float, default=90)
     args = parser.parse_args()
     if not 0 < args.startup_timeout <= 90:
@@ -29,15 +33,24 @@ def main() -> int:
         if remaining <= 0:
             raise subprocess.TimeoutExpired(compose, budget)
         result = subprocess.run(
-            [*compose, *command], cwd=ROOT, check=True, text=True, timeout=remaining,
-            stdout=subprocess.PIPE if capture else None, stderr=subprocess.DEVNULL if capture else None,
+            [*compose, *command],
+            cwd=ROOT,
+            check=True,
+            text=True,
+            timeout=remaining,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.DEVNULL if capture else None,
         )
         return result.stdout.strip() if capture else ""
 
     stage = "API preflight"
     try:
-        if run(["ps", "--status", "running", "-q", "api"], 5, capture=True):
-            print("API is still running. Stop it and verify the backup before migration.")
+        active = ("running", "restarting", "paused", "removing", "dead")
+        status_filters = [f"--status={status}" for status in active]
+        if run(["ps", "--all", *status_filters, "-q", "api"], 5, capture=True):
+            print(
+                "API is still running. Stop it and verify the backup before migration."
+            )
             return 1
         if args.update and not run(["ps", "-aq", "db"], 5, capture=True):
             print("Update requires an existing database container.")
@@ -45,9 +58,33 @@ def main() -> int:
         stage = "PostgreSQL startup"
         run(["up", "-d", "--no-build", "--wait", "--wait-timeout", "39", "db"], 40)
         stage = "migration"
-        run(["up", "--no-build", "--no-deps", "--force-recreate", "--exit-code-from", "migrate", "migrate"], 31)
+        run(
+            [
+                "up",
+                "--no-build",
+                "--no-deps",
+                "--force-recreate",
+                "--exit-code-from",
+                "migrate",
+                "migrate",
+            ],
+            31,
+        )
         stage = "API startup"
-        run(["up", "-d", "--no-build", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "14", "api"], 15)
+        run(
+            [
+                "up",
+                "-d",
+                "--no-build",
+                "--no-deps",
+                "--force-recreate",
+                "--wait",
+                "--wait-timeout",
+                "14",
+                "api",
+            ],
+            15,
+        )
     except (OSError, subprocess.SubprocessError):
         print(f"Startup failed during {stage}. Check Compose service state.")
         return 1

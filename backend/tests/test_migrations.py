@@ -135,6 +135,12 @@ def test_failed_update_keeps_api_stopped(migrated: Project) -> None:
     assert migrated.start("--update", check=False).returncode != 0
     assert migrated.inspect("migrate")["State"] == migrate_state
     assert migrated.health("/health/live")[0] == 200
+    migrated.compose("pause", "api")
+    try:
+        assert migrated.start("--update", check=False).returncode != 0
+        assert migrated.inspect("migrate")["State"] == migrate_state
+    finally:
+        migrated.compose("unpause", "api")
     migrated.compose("stop", "api")
     with migrated.db() as observer:
         observer.execute("ALTER SCHEMA qa OWNER TO qa_admin")

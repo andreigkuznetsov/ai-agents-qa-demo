@@ -32,7 +32,8 @@ def run(
     migrated_db.api_env(monkeypatch)
 
     async def execute() -> None:
-        await check()
+        async with asyncio.timeout(15):
+            await check()
 
     asyncio.run(execute())
 
@@ -92,11 +93,12 @@ def test_connect_timeout(migrated_db: Project, monkeypatch: pytest.MonkeyPatch) 
                         assert blocked.engine.pool.checkedout() == 0  # type: ignore[attr-defined]
             finally:
                 listener.close()
-                await listener.wait_closed()
+                listener.abort_clients()
                 peers = tuple(opened)
                 for peer in peers:
                     peer.cancel()
                 await asyncio.gather(*peers, return_exceptions=True)
+                await asyncio.wait_for(listener.wait_closed(), 2)
             await recover(db, ready)
 
     run(migrated_db, monkeypatch, verify)
