@@ -1,6 +1,6 @@
 # Tasks
 
-КТ2 PR 2 · `kt2-postgres-run-store` · [Issue №3](https://github.com/andreigkuznetsov/ai-agents-qa-demo/issues/3). Статус: Tasks утверждены с уточнением прав PostgreSQL. Все проверки ниже запланированы, фактических результатов в этом файле нет.
+КТ2 PR 2 · `kt2-postgres-run-store` · [Issue №3](https://github.com/andreigkuznetsov/ai-agents-qa-demo/issues/3). Статус: Tasks утверждены с уточнением прав PostgreSQL. Выполнены все 17 задач. Фактические результаты проверок зафиксированы в журнале SDD Issue №3.
 
 Версия утверждённых Requirements — `732cad366f3b0200cb98c8498db426ef69017824`. Версия утверждённого [Design](design.md) — `2499d71b7512063ead82b289b44564eab6fc6a31`. Источники сценариев — дельты [postgres-runtime](specs/postgres-runtime/spec.md) и [run-store](specs/run-store/spec.md).
 
