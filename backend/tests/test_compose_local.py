@@ -1,7 +1,11 @@
+import asyncio
 from typing import Any, cast
-from uuid import uuid4
 
+import pytest
 from conftest import Project
+
+from app.database import Database, Settings
+from app.run_store import Run, RunStore
 
 
 def test_network_bindings(migrated: Project) -> None:
@@ -28,17 +32,30 @@ def postgres_volume(project: Project) -> str:
     return volumes[0]
 
 
-def test_runs_survive_stop_start(migrated: Project) -> None:
-    uid = uuid4()
+def test_runs_survive_stop_start(
+    migrated: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
     volume = postgres_volume(migrated)
-    with migrated.db("api") as connection:
-        before = connection.execute(
-            "INSERT INTO qa.runs (run_id,schema_version,status) VALUES (%s,1,'CREATED') RETURNING *",
-            (uid,),
-        ).fetchone()
+    uid = RunStore.new_id()
+
+    async def access_record(*, create: bool) -> Run | None:
+        db = Database(Settings.from_env())
+        try:
+            store = RunStore(db)
+            return await store.create(uid) if create else await store.read(uid)
+        finally:
+            await db.close()
+
+    migrated.api_env(monkeypatch)
+    before = asyncio.run(access_record(create=True))
+    assert before is not None
     migrated.compose("stop")
     migrated.start()
     assert postgres_volume(migrated) == volume
     assert migrated.health("/healthz")[0] == 200
-    with migrated.db("api") as connection:
-        assert connection.execute("SELECT * FROM qa.runs").fetchall() == [before]
+    migrated.api_env(monkeypatch)
+    assert asyncio.run(access_record(create=False)) == before
+    with migrated.db("api") as observer:
+        assert observer.execute(
+            "SELECT count(*) FROM qa.runs WHERE run_id = %s", (uid,)
+        ).fetchone() == (1,)

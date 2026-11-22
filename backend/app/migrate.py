@@ -14,11 +14,9 @@ from app.database import (
 ROLE_BASELINE = """
 SELECT
     (SELECT nspowner = 'qa_migrate'::regrole FROM pg_namespace WHERE nspname = 'qa')
-    AND NOT (SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls
-             FROM pg_roles WHERE rolname = 'qa_api')
-    AND NOT pg_has_role('qa_api', 'qa_migrate', 'MEMBER')
-    AND NOT pg_has_role('qa_api', 'qa_migrate', 'SET')
-    AND NOT pg_has_role('qa_api', 'qa_admin', 'MEMBER')
+    AND (SELECT rolcanlogin AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
+         FROM pg_roles WHERE rolname = 'qa_api')
+    AND NOT EXISTS (SELECT FROM pg_auth_members WHERE member = 'qa_api'::regrole)
     AND has_database_privilege('qa_api', current_database(), 'CONNECT')
     AND NOT has_database_privilege('qa_api', current_database(), 'CREATE')
     AND NOT has_database_privilege('qa_api', current_database(), 'TEMPORARY')
@@ -26,6 +24,24 @@ SELECT
     AND NOT has_schema_privilege('qa_api', 'qa', 'CREATE')
     AND NOT has_schema_privilege('qa_api', 'public', 'CREATE')
 """
+
+TABLE_OWNERS = """
+SELECT count(*), coalesce(bool_and(relowner = 'qa_migrate'::regrole AND relkind = 'r'), true)
+FROM pg_class
+WHERE relnamespace = 'qa'::regnamespace AND relname IN ('runs', 'alembic_version')
+"""
+
+COLUMN_PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "REFERENCES"}
+
+
+def _check_source(connection: Connection, head: str) -> None:
+    if connection.exec_driver_sql(ROLE_BASELINE).scalar_one() is not True:
+        raise RuntimeError("unexpected PostgreSQL role or schema configuration")
+    count, owned = connection.exec_driver_sql(TABLE_OWNERS).one()
+    if not owned or count not in (0, 2):
+        raise RuntimeError("unexpected PostgreSQL objects or ownership")
+    if current_revisions(connection) != ((head,) if count else ()):
+        raise RuntimeError("unsupported source revision")
 
 
 def _execute_grants(connection: Connection) -> None:
@@ -48,12 +64,21 @@ def _validate_grants(connection: Connection) -> None:
             "TRIGGER",
             "MAINTAIN",
         ):
-            privileges = connection.exec_driver_sql(
+            params = (table, privilege, table, f"{privilege} WITH GRANT OPTION")
+            expected = (privilege in allowed, False)
+            table_acl = connection.exec_driver_sql(
                 "SELECT has_table_privilege('qa_api', %s, %s), has_table_privilege('qa_api', %s, %s)",
-                (table, privilege, table, f"{privilege} WITH GRANT OPTION"),
+                params,
             ).one()
-            if tuple(privileges) != (privilege in allowed, False):
-                raise RuntimeError("unexpected effective object privileges")
+            if tuple(table_acl) != expected:
+                raise RuntimeError("unexpected effective table privileges")
+            if privilege in COLUMN_PRIVILEGES:
+                column_acl = connection.exec_driver_sql(
+                    "SELECT has_any_column_privilege('qa_api', %s, %s), has_any_column_privilege('qa_api', %s, %s)",
+                    params,
+                ).one()
+                if tuple(column_acl) != expected:
+                    raise RuntimeError("unexpected effective column privileges")
 
 
 def upgrade() -> None:
@@ -74,10 +99,7 @@ def upgrade() -> None:
     )
     try:
         with engine.begin() as connection:
-            if connection.exec_driver_sql(ROLE_BASELINE).scalar_one() is not True:
-                raise RuntimeError("unexpected PostgreSQL role or schema configuration")
-            if current_revisions(connection) not in ((), (head,)):
-                raise RuntimeError("unsupported source revision")
+            _check_source(connection, head)
             config.attributes["connection"] = connection
             command.upgrade(config, "head")
             _execute_grants(connection)

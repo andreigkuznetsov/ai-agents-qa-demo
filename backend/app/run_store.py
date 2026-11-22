@@ -45,12 +45,17 @@ class RunStore:
     def __init__(self, database: Database):
         self.database = database
 
-    async def create(self, run_id: UUID | None = None) -> Run:
+    @staticmethod
+    def new_id() -> UUID:
+        """Allocate the ID before starting a write whose outcome can be uncertain."""
+        return uuid4()
+
+    async def create(self, run_id: UUID) -> Run:
         async with self.database.transaction() as connection:
             result = await connection.execute(
                 insert(runs)
                 .values(
-                    run_id=run_id if run_id is not None else uuid4(),
+                    run_id=run_id,
                     schema_version=1,
                     status="CREATED",
                 )

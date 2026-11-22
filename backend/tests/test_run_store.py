@@ -20,7 +20,10 @@ def test_address_two_runs(
         db = Database(Settings.from_env())
         try:
             store = RunStore(db)
-            first, second = await store.create(), await store.create()
+            first, second = (
+                await store.create(store.new_id()),
+                await store.create(store.new_id()),
+            )
             assert first.run_id.version == second.run_id.version == 4
             assert first.run_id != second.run_id
             assert await store.read(first.run_id) == first
@@ -51,20 +54,38 @@ def test_commit_visibility(
 
     async def verify() -> None:
         db = Database(Settings.from_env())
-        transactions: list[str] = []
+        operations: list[tuple[str, int]] = []
+        checkouts: list[int] = []
+        engine = db.engine.sync_engine
+
+        @event.listens_for(engine.pool, "checkout")
+        def checkout(connection: object, record: object, proxy: object) -> None:
+            checkouts.append(id(connection))
+
+        @event.listens_for(engine, "before_cursor_execute")
+        def trace(conn: object, cursor: object, statement: str, *args: object) -> None:
+            if "SELECT qa.alembic_version.version_num" in statement:
+                operations.append(("revision", id(conn)))
+            if statement.startswith("INSERT INTO qa.runs"):
+                operations.append(("insert", id(conn)))
+
         try:
             event.listen(
-                db.engine.sync_engine,
-                "begin",
-                lambda conn: transactions.append("begin"),
+                engine, "begin", lambda conn: operations.append(("begin", id(conn)))
             )
             event.listen(
-                db.engine.sync_engine,
-                "commit",
-                lambda conn: transactions.append("commit"),
+                engine, "commit", lambda conn: operations.append(("commit", id(conn)))
             )
-            row = await RunStore(db).create()
-            assert transactions == ["begin", "commit"]
+            store = RunStore(db)
+            row = await store.create(store.new_id())
+            assert len(checkouts) == 1
+            assert [name for name, _ in operations] == [
+                "begin",
+                "revision",
+                "insert",
+                "commit",
+            ]
+            assert len({connection for _, connection in operations}) == 1
             with migrated_db.db("api") as other:
                 assert other.execute("SELECT * FROM qa.runs").fetchone() == (
                     row.run_id,
@@ -87,7 +108,7 @@ def test_duplicate_run_id(
         db = Database(Settings.from_env())
         try:
             store = RunStore(db)
-            existing = await store.create()
+            existing = await store.create(store.new_id())
             with pytest.raises(IntegrityError):
                 await store.create(existing.run_id)
             assert await store.read(existing.run_id) == existing
@@ -121,7 +142,7 @@ def test_revision_gate_before_storage(
                     RuntimeError, match="incompatible database revision"
                 ):
                     if operation == "create":
-                        await store.create()
+                        await store.create(store.new_id())
                     else:
                         await store.read(uuid4())
             assert any("alembic_version" in statement for statement in statements)
@@ -145,7 +166,7 @@ def test_cancelled_write_recovery(
         store = RunStore(db)
         original_commit = AsyncTransaction.commit
         try:
-            cancelled_id = uuid4()
+            cancelled_id = store.new_id()
             with migrated_db.db() as observer:
                 observer.execute("LOCK TABLE qa.runs IN ACCESS EXCLUSIVE MODE")
                 async with asyncio.TaskGroup() as group:
@@ -177,7 +198,7 @@ def test_cancelled_write_recovery(
                     "injected interruption after real PostgreSQL commit"
                 )
 
-            possibly_committed = uuid4()
+            possibly_committed = store.new_id()
             with monkeypatch.context() as patch:
                 patch.setattr(AsyncTransaction, "commit", lose_commit_result)
                 with pytest.raises(asyncio.CancelledError):
@@ -187,7 +208,7 @@ def test_cancelled_write_recovery(
             persisted = await asyncio.wait_for(store.read(possibly_committed), 3)
             assert persisted is not None and persisted.run_id == possibly_committed
             assert db.engine.pool.checkedout() == 0  # type: ignore[attr-defined]
-            assert await asyncio.wait_for(store.create(), 3)
+            assert await asyncio.wait_for(store.create(store.new_id()), 3)
         finally:
             await asyncio.wait_for(db.close(), 3)
 

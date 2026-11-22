@@ -114,6 +114,21 @@
   },
   "links": [
     {
+      "task": "1.4",
+      "target": "SC-PG-001",
+      "test": "backend/tests/test_permissions.py::test_update_rejects_privilege_drift"
+    },
+    {
+      "task": "2.2",
+      "target": "SC-PG-002",
+      "test": "backend/tests/test_permissions.py::test_update_rejects_privilege_drift"
+    },
+    {
+      "task": "1.8",
+      "target": "SC-PG-008",
+      "test": "backend/tests/test_readiness_pool.py::test_asgi_disconnect_releases_connection"
+    },
+    {
       "task": "2.4",
       "target": "SC-PG-002",
       "test": "backend/tests/test_migrations.py::test_migration_process_deadline"

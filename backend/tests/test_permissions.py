@@ -69,3 +69,59 @@ def test_api_grants_after_repeat(migrated: Project) -> None:
 
 def test_api_cannot_elevate_or_mutate_schema(migrated: Project) -> None:
     assert_api_privileges(migrated)
+
+
+@pytest.mark.parametrize(
+    "drift_sql, evidence_sql",
+    [
+        (
+            "GRANT UPDATE (version_num) ON qa.alembic_version TO PUBLIC",
+            "SELECT has_any_column_privilege('qa_api','qa.alembic_version','UPDATE')",
+        ),
+        (
+            "GRANT SELECT (status) ON qa.runs TO qa_api WITH GRANT OPTION",
+            "SELECT has_any_column_privilege('qa_api','qa.runs','SELECT WITH GRANT OPTION')",
+        ),
+        (
+            "CREATE ROLE qa_drift NOLOGIN; GRANT qa_drift TO qa_api WITH INHERIT FALSE, SET TRUE",
+            "SELECT pg_has_role('qa_api','qa_drift','SET') AND NOT pg_has_role('qa_api','qa_drift','USAGE')",
+        ),
+        (
+            "GRANT TEMPORARY ON DATABASE qa_demo TO PUBLIC",
+            "SELECT has_database_privilege('qa_api',current_database(),'TEMPORARY')",
+        ),
+        (
+            "ALTER TABLE qa.runs OWNER TO qa_admin",
+            "SELECT relowner = 'qa_admin'::regrole FROM pg_class WHERE oid = 'qa.runs'::regclass",
+        ),
+    ],
+    ids=[
+        "public-column",
+        "column-grant-option",
+        "set-only-role",
+        "public-temp",
+        "unexpected-owner",
+    ],
+)
+def test_update_rejects_privilege_drift(
+    migrated: Project, drift_sql: str, evidence_sql: str
+) -> None:
+    migrated.compose("stop", "api")
+    with migrated.db() as admin:
+        baseline = admin.execute(
+            "SELECT version_num FROM qa.alembic_version"
+        ).fetchall()
+        admin.execute(drift_sql)
+        assert admin.execute(evidence_sql).fetchone() == (True,)
+
+    startup = migrated.start("--update", check=False)
+    assert startup.returncode != 0
+    assert "migration failed" in startup.stdout + startup.stderr
+    assert not migrated.compose("ps", "-q", "api")
+
+    with migrated.db() as admin:
+        assert (
+            admin.execute("SELECT version_num FROM qa.alembic_version").fetchall()
+            == baseline
+        )
+        assert admin.execute(evidence_sql).fetchone() == (True,)

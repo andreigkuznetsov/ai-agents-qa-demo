@@ -7,8 +7,10 @@ from typing import AsyncIterator
 import psycopg
 import pytest
 from conftest import Project
+from starlette.types import Message, Scope
 
 from app.database import Database, Settings
+from app.main import app
 from app.readiness import Readiness
 from app.run_store import RunStore
 
@@ -42,7 +44,8 @@ async def recover(db: Database, ready: Readiness) -> None:
     await asyncio.wait_for(ready.drain(), 4)
     assert db.engine.pool.checkedout() == 0  # type: ignore[attr-defined]
     assert await ready.check()
-    assert (await RunStore(db).create()).status == "CREATED"
+    store = RunStore(db)
+    assert (await store.create(store.new_id())).status == "CREATED"
     assert db.engine.pool.checkedout() == 0  # type: ignore[attr-defined]
 
 
@@ -198,4 +201,48 @@ def test_recovers_without_connection_leaks(
                     assert isinstance(total, int) and 0 < total <= 2
                     assert stuck == 0
 
+    run(migrated_db, monkeypatch, verify)
+
+
+def test_asgi_disconnect_releases_connection(
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def verify() -> None:
+        scope: Scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/health/ready",
+            "raw_path": b"/health/ready",
+            "query_string": b"",
+            "root_path": "",
+            "headers": [],
+            "server": ("127.0.0.1", 8000),
+            "client": ("127.0.0.1", 12345),
+        }
+        events: asyncio.Queue[Message] = asyncio.Queue()
+        events.put_nowait({"type": "http.request", "body": b"", "more_body": False})
+
+        async def send(message: Message) -> None:
+            pass
+
+        async with app.router.lifespan_context(app):
+            ready: Readiness = app.state.readiness
+            db = ready.database
+            with migrated_db.db() as observer:
+                observer.execute(
+                    "LOCK TABLE qa.alembic_version IN ACCESS EXCLUSIVE MODE"
+                )
+                async with asyncio.TaskGroup() as group:
+                    request = group.create_task(app(scope, events.get, send))
+                    await until_blocked(observer)
+                    events.put_nowait({"type": "http.disconnect"})
+                    await asyncio.wait_for(request, 3)
+                    await asyncio.wait_for(ready.drain(), 3)
+                    assert db.engine.pool.checkedout() == 0  # type: ignore[attr-defined]
+            await recover(db, ready)
+
+    monkeypatch.setenv("QA_SQL_TIMEOUT_MS", "5000")
     run(migrated_db, monkeypatch, verify)
