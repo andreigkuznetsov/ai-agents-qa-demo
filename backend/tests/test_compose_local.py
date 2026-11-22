@@ -17,9 +17,20 @@ def test_network_bindings(migrated: Project) -> None:
     )
 
 
+def postgres_volume(project: Project) -> str:
+    mounts = cast(list[dict[str, str]], project.inspect("db")["Mounts"])
+    volumes = [
+        mount["Name"]
+        for mount in mounts
+        if mount["Type"] == "volume" and mount["Destination"] == "/var/lib/postgresql"
+    ]
+    assert len(volumes) == 1
+    return volumes[0]
+
+
 def test_runs_survive_stop_start(migrated: Project) -> None:
     uid = uuid4()
-    mounts = migrated.inspect("db")["Mounts"]
+    volume = postgres_volume(migrated)
     with migrated.db("api") as connection:
         before = connection.execute(
             "INSERT INTO qa.runs (run_id,schema_version,status) VALUES (%s,1,'CREATED') RETURNING *",
@@ -27,7 +38,7 @@ def test_runs_survive_stop_start(migrated: Project) -> None:
         ).fetchone()
     migrated.compose("stop")
     migrated.start()
-    assert migrated.inspect("db")["Mounts"] == mounts
+    assert postgres_volume(migrated) == volume
     assert migrated.health("/healthz")[0] == 200
     with migrated.db("api") as connection:
         assert connection.execute("SELECT * FROM qa.runs").fetchall() == [before]
