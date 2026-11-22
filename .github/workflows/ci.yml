@@ -78,5 +78,5 @@ jobs:
           QA_IT_IMAGE: ai-agents-qa-demo:ci
         working-directory: backend
         run: |
-          .venv/bin/python -m pytest -v -p no:cacheprovider -o faulthandler_timeout=30 tests/test_run_store.py::test_cancelled_write_recovery
+          timeout 60s .venv/bin/python -m pytest -v -p no:cacheprovider -o faulthandler_timeout=25 tests/test_run_store.py::test_cancelled_write_recovery
           .venv/bin/python -m pytest -vx -p no:cacheprovider -o faulthandler_timeout=45 --durations=12 --junitxml "$RUNNER_TEMP/postgres-tests.xml"

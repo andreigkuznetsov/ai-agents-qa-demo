@@ -138,40 +138,55 @@ def test_cancelled_write_recovery(
     from sqlalchemy.ext.asyncio import AsyncTransaction
 
     migrated_db.api_env(monkeypatch)
+    monkeypatch.setenv("QA_SQL_TIMEOUT_MS", "5000")
 
     async def verify() -> None:
         db = Database(Settings.from_env())
         store = RunStore(db)
-        commit = AsyncTransaction.commit
+        original_commit = AsyncTransaction.commit
         try:
-            assert await store.read(uuid4()) is None
-            for commit_sent in (False, True):
-                uid = uuid4()
-                reached_commit = asyncio.Event()
-                release_commit = asyncio.Event()
+            cancelled_id = uuid4()
+            with migrated_db.db() as observer:
+                observer.execute("LOCK TABLE qa.runs IN ACCESS EXCLUSIVE MODE")
+                async with asyncio.TaskGroup() as group:
+                    insertion = group.create_task(store.create(cancelled_id))
+                    try:
+                        async with asyncio.timeout(3):
+                            while True:
+                                observer.execute("SELECT pg_stat_clear_snapshot()")
+                                blocked = observer.execute("""
+                                    SELECT count(*) FROM pg_stat_activity
+                                    WHERE application_name = 'qa-api'
+                                      AND wait_event_type = 'Lock'
+                                      AND query LIKE 'INSERT INTO qa.runs%'
+                                """).fetchone()
+                                if blocked == (1,):
+                                    break
+                                await asyncio.sleep(0.02)
+                    finally:
+                        insertion.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await asyncio.wait_for(insertion, 3)
 
-                async def interrupted_commit(transaction: AsyncTransaction) -> None:
-                    if commit_sent:
-                        await commit(transaction)
-                    reached_commit.set()
-                    await release_commit.wait()
+            await asyncio.wait_for(db.drain_cleanup(), 3)
+            assert await asyncio.wait_for(store.read(cancelled_id), 3) is None
 
-                with monkeypatch.context() as patch:
-                    patch.setattr(AsyncTransaction, "commit", interrupted_commit)
-                    async with asyncio.TaskGroup() as group:
-                        insertion = group.create_task(store.create(uid))
-                        try:
-                            await asyncio.wait_for(reached_commit.wait(), 3)
-                            insertion.cancel()
-                            with pytest.raises(asyncio.CancelledError):
-                                await asyncio.wait_for(insertion, 3)
-                        finally:
-                            release_commit.set()
+            async def lose_commit_result(transaction: AsyncTransaction) -> None:
+                await original_commit(transaction)
+                raise asyncio.CancelledError(
+                    "injected interruption after real PostgreSQL commit"
+                )
 
-                await asyncio.wait_for(db.drain_cleanup(), 3)
-                row = await asyncio.wait_for(store.read(uid), 3)
-                assert (row is not None) == commit_sent
-                assert db.engine.pool.checkedout() == 0  # type: ignore[attr-defined]
+            possibly_committed = uuid4()
+            with monkeypatch.context() as patch:
+                patch.setattr(AsyncTransaction, "commit", lose_commit_result)
+                with pytest.raises(asyncio.CancelledError):
+                    await asyncio.wait_for(store.create(possibly_committed), 3)
+
+            await asyncio.wait_for(db.drain_cleanup(), 3)
+            persisted = await asyncio.wait_for(store.read(possibly_committed), 3)
+            assert persisted is not None and persisted.run_id == possibly_committed
+            assert db.engine.pool.checkedout() == 0  # type: ignore[attr-defined]
             assert await asyncio.wait_for(store.create(), 3)
         finally:
             await asyncio.wait_for(db.close(), 3)
