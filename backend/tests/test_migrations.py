@@ -8,6 +8,12 @@ from alembic import op
 from conftest import Project, prepare_kt2
 from fastapi.testclient import TestClient
 from psycopg import Error
+from support.kt3_fixture_loader import (
+    FIXTURE,
+    FIXTURE_VERSION,
+    FixtureError,
+    load_fixture,
+)
 from test_compose_local import postgres_volume
 
 
@@ -117,6 +123,13 @@ def test_kt3_source_revision_matrix(
             admin.execute(restore)
     migration.upgrade()
     with fresh.db() as admin:
+        admin.execute(
+            "CREATE TABLE public.test_fixture_child () INHERITS (qa.las_fixture_runs)"
+        )
+    with pytest.raises(RuntimeError, match="unexpected PostgreSQL table inheritance"):
+        migration.upgrade()
+    with fresh.db() as admin:
+        admin.execute("DROP TABLE public.test_fixture_child")
         admin.execute("ALTER TABLE qa.las_orders DISABLE TRIGGER ALL")
     disabled = kt3_catalog(fresh)
     with pytest.raises(
@@ -130,6 +143,30 @@ def test_kt3_source_revision_matrix(
             "SELECT version_num FROM qa.alembic_version"
         ).fetchone() == ("0002_las_fixtures",)
         admin.execute("ALTER TABLE qa.las_orders ENABLE TRIGGER ALL")
+        admin.execute("ALTER ROLE qa_migrate SET session_replication_role = replica")
+    run = uuid4()
+    before = kt3_catalog(fresh)
+    try:
+        with pytest.raises(
+            RuntimeError, match="unexpected PostgreSQL session replication role"
+        ):
+            migration.upgrade()
+        with fresh.db("migrate") as migrator:
+            with pytest.raises(
+                FixtureError, match="unexpected PostgreSQL session replication role"
+            ):
+                load_fixture(migrator, run, FIXTURE_VERSION, FIXTURE)
+        with fresh.db() as observer:
+            assert observer.execute(
+                "SELECT count(*) FROM qa.las_fixture_runs"
+            ).fetchone() == (0,)
+            assert observer.execute("SELECT * FROM qa.alembic_version").fetchall() == [
+                ("0002_las_fixtures",)
+            ]
+        assert kt3_catalog(fresh) == before
+    finally:
+        with fresh.db() as admin:
+            admin.execute("ALTER ROLE qa_migrate RESET session_replication_role")
     migration.upgrade()
 
 

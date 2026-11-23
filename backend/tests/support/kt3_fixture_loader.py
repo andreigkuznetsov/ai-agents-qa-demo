@@ -54,6 +54,10 @@ def _values(value: object) -> list[object]:
 def _identifier(value: object) -> str:
     if not isinstance(value, str) or not value or "\x00" in value:
         raise FixtureError("invalid fixture identifier")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise FixtureError("invalid fixture identifier") from None
     return value
 
 
@@ -154,6 +158,9 @@ def load_fixture(
         )
         if cur.fetchone() != (True,):
             raise FixtureError("fixture loader requires the trusted migration role")
+        cur.execute("SHOW session_replication_role")
+        if cur.fetchone() != ("origin",):
+            raise FixtureError("unexpected PostgreSQL session replication role")
         cur.execute(
             "SELECT pg_advisory_xact_lock(%s::bigint)", (initialization_lock(run_id),)
         )

@@ -59,13 +59,15 @@ def test_kt3_auth_scope_and_no_management(
 
     auth = {"Authorization": f"Bearer {token}"}
     spoofed = {"run_id": str(foreign), "client_id": CLIENT_B}
+    body_marker = f"synthetic-request-body-{uuid4()}"
+    body = {**spoofed, "marker": body_marker}
     with caplog.at_level(logging.DEBUG), TestClient(probe) as client:
         for headers in (
             {},
             {"Authorization": f"Bearer {foreign}"},
             {"Authorization": f"Bearer {unrecognized}"},
         ):
-            response = client.post("/scope-probe", headers=headers, json=spoofed)
+            response = client.post("/scope-probe", headers=headers, json=body)
             assert response.status_code == 401
             assert response.json() == {"error": {"code": "UNAUTHENTICATED"}}
         duplicate = client.post(
@@ -73,7 +75,10 @@ def test_kt3_auth_scope_and_no_management(
         )
         assert duplicate.status_code == 401
         response = client.post(
-            "/scope-probe", headers=auth, params=spoofed, json=spoofed
+            "/scope-probe",
+            headers={**auth, "X-Run-Id": str(foreign), "X-Client-Id": CLIENT_B},
+            params=spoofed,
+            json=body,
         )
         assert response.status_code == 200
         assert response.json() == {
@@ -90,6 +95,7 @@ def test_kt3_auth_scope_and_no_management(
         token,
         digest,
         unrecognized,
+        body_marker,
         *migrated_db.passwords.values(),
         "postgresql://",
         "postgresql+psycopg://",

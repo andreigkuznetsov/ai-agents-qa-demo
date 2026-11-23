@@ -88,6 +88,7 @@ def test_kt3_bundle_bytes_and_validation(
         raw.replace(b"\n", b"\r\n"),
         b"\xef\xbb\xbf" + raw,
         b"{",
+        raw.replace(b"order-001", b"order-\\ud800"),
         raw.replace(b"2026-11-26", b"2026-02-30"),
         raw.replace(b'"status": "OPEN"', b'"status": "CREATED"'),
         raw.replace(b'"status": "OPEN"', b'"status": "OPEN", "status": "OPEN"'),

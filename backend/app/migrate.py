@@ -187,6 +187,16 @@ def _validate_catalog(connection: Connection, tables: tuple[str, ...]) -> None:
         )
     if set(map(tuple, constraints)) != expected_constraints:
         raise RuntimeError("unexpected PostgreSQL table constraints")
+    inheritance = connection.exec_driver_sql("""
+        SELECT EXISTS (
+            SELECT FROM pg_inherits i
+            JOIN pg_class parent ON parent.oid=i.inhparent
+            JOIN pg_class child ON child.oid=i.inhrelid
+            WHERE 'qa'::regnamespace IN (parent.relnamespace, child.relnamespace)
+        )
+    """).scalar_one()
+    if inheritance:
+        raise RuntimeError("unexpected PostgreSQL table inheritance")
     extra_behavior = connection.exec_driver_sql("""
         SELECT EXISTS (
             SELECT FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
@@ -209,6 +219,11 @@ def _validate_catalog(connection: Connection, tables: tuple[str, ...]) -> None:
 
 
 def _check_source(connection: Connection, head: str) -> None:
+    if (
+        connection.exec_driver_sql("SHOW session_replication_role").scalar_one()
+        != "origin"
+    ):
+        raise RuntimeError("unexpected PostgreSQL session replication role")
     if connection.exec_driver_sql(ROLE_BASELINE).scalar_one() is not True:
         raise RuntimeError("unexpected PostgreSQL role or schema configuration")
     source = current_revisions(connection)
