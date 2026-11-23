@@ -1,0 +1,125 @@
+{
+  "change_id": "kt2-compose-acceptance",
+  "issue": 3,
+  "kind": "implementation",
+  "scope": [
+    ".github/workflows/compose-acceptance.yml",
+    "README.md",
+    "docs/development/kt2-compose-runbook.md",
+    "openspec/changes/kt2-compose-acceptance/.openspec.yaml",
+    "openspec/changes/kt2-compose-acceptance/design.md",
+    "openspec/changes/kt2-compose-acceptance/proposal.md",
+    "openspec/changes/kt2-compose-acceptance/specs/compose-acceptance/spec.md",
+    "openspec/changes/kt2-compose-acceptance/tasks.md",
+    "openspec/verification/kt2-compose-acceptance/pr3.json",
+    "scripts/compose-acceptance.py",
+    "scripts/tests/test_compose_acceptance.py"
+  ],
+  "tasks": [
+    "1.1",
+    "1.2",
+    "1.3",
+    "2.1",
+    "2.2",
+    "2.3",
+    "2.4",
+    "3.1",
+    "3.2",
+    "3.3",
+    "4.1"
+  ],
+  "targets": {
+    "SC-CAF-001": {
+      "requirement": "AC-CAF-001",
+      "scenario": "SC-CAF-001",
+      "spec": "openspec/changes/kt2-compose-acceptance/specs/compose-acceptance/spec.md"
+    },
+    "SC-CAF-002": {
+      "requirement": "AC-CAF-002",
+      "scenario": "SC-CAF-002",
+      "spec": "openspec/changes/kt2-compose-acceptance/specs/compose-acceptance/spec.md"
+    },
+    "SC-CAF-003": {
+      "requirement": "AC-CAF-003",
+      "scenario": "SC-CAF-003",
+      "spec": "openspec/changes/kt2-compose-acceptance/specs/compose-acceptance/spec.md"
+    },
+    "SC-CAF-004": {
+      "requirement": "AC-CAF-003",
+      "scenario": "SC-CAF-004",
+      "spec": "openspec/changes/kt2-compose-acceptance/specs/compose-acceptance/spec.md"
+    },
+    "SC-CAF-005": {
+      "requirement": "AC-CAF-004",
+      "scenario": "SC-CAF-005",
+      "spec": "openspec/changes/kt2-compose-acceptance/specs/compose-acceptance/spec.md"
+    },
+    "SC-CAF-006": {
+      "requirement": "AC-CAF-005",
+      "scenario": "SC-CAF-006",
+      "spec": "openspec/changes/kt2-compose-acceptance/specs/compose-acceptance/spec.md"
+    }
+  },
+  "links": [
+    {
+      "task": "1.1",
+      "target": "SC-CAF-006",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_guards"
+    },
+    {
+      "task": "1.2",
+      "target": "SC-CAF-003",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_deadline"
+    },
+    {
+      "task": "1.3",
+      "target": "SC-CAF-005",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_report_validation"
+    },
+    {
+      "task": "2.1",
+      "target": "SC-CAF-001",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_startup_order"
+    },
+    {
+      "task": "2.1",
+      "target": "SC-CAF-001",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_bindings"
+    },
+    {
+      "task": "2.2",
+      "target": "SC-CAF-002",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_persistence"
+    },
+    {
+      "task": "2.3",
+      "target": "SC-CAF-003",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_health_and_recovery"
+    },
+    {
+      "task": "2.4",
+      "target": "SC-CAF-004",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_migration_failure"
+    },
+    {
+      "task": "3.1",
+      "target": "SC-CAF-005",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_windows_unverified_is_not_pass"
+    },
+    {
+      "task": "3.2",
+      "target": "SC-CAF-005",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_report_validation"
+    },
+    {
+      "task": "3.3",
+      "target": "SC-CAF-006",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_ownership"
+    },
+    {
+      "task": "4.1",
+      "target": "SC-CAF-005",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_report_validation"
+    }
+  ]
+}

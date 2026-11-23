@@ -1,6 +1,6 @@
 # Tasks
 
-КТ2 PR 3 · `kt2-compose-acceptance` · [Issue №3](https://github.com/andreigkuznetsov/ai-agents-qa-demo/issues/3). Tasks ожидают утверждения. Проверки ниже запланированы. До фактического прогона Windows имеет статус `NOT VERIFIED`.
+КТ2 PR 3 · `kt2-compose-acceptance` · [Issue №3](https://github.com/andreigkuznetsov/ai-agents-qa-demo/issues/3). Tasks утверждены в редакции 10f523a2e7e32d73b3df1745cd63c6699f3b574e. Linux-приёмка проверяется на SHA кандидата. Статус Windows до фактического прогона: NOT VERIFIED.
 
 - Утверждённые [Requirements](specs/compose-acceptance/spec.md) — `1bc6c34b361c9b70d677b58fc1ba717f7b7885ca`. [Design](design.md) D-CAF-01–04 утверждён на `df2d5ca9a7670389591bae1c739f8900ddac123d` с уточнениями пользователя от 23.11.2026. Итоговая редакция Design — `d7a5a93931952e8d35c52d2f98f03d83101c995a`.
 - База — `main` на `1d58c324beb01dc5ec3ea51491fec308eea6bc6b`. Действующие [postgres-runtime](../../specs/postgres-runtime/spec.md) и [run-store](../../specs/run-store/spec.md) задают контракты. Сохраняются API, роли `qa_admin`/`qa_migrate`/`qa_api`, четыре поля `runs`, закреплённые версии и бюджеты D-PG-03. Проверки PR 2 остаются источником доказательств для детальных отказов, полномочий и поведения хранилища.

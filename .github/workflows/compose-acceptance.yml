@@ -1,0 +1,42 @@
+name: Compose acceptance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  linux-compose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ env.EXPECTED_SHA }}
+      - name: Test acceptance driver
+        run: python3 -m unittest discover -s scripts/tests -p test_compose_acceptance.py -v
+      - name: Exercise Compose with PostgreSQL
+        run: |
+          python3 scripts/compose-acceptance.py --linux-ci --context default \
+            --expected-sha "$EXPECTED_SHA" --report-dir "$RUNNER_TEMP/kt2-compose-evidence"
+      - name: Verify cleaned evidence
+        if: always()
+        run: |
+          python3 scripts/compose-acceptance.py --expected-sha "$EXPECTED_SHA" \
+            --verify-report "$RUNNER_TEMP/kt2-compose-evidence/report.json"
+      - name: Upload cleaned evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: compose-acceptance-linux-${{ env.EXPECTED_SHA }}
+          path: |
+            ${{ runner.temp }}/kt2-compose-evidence/report.json
+            ${{ runner.temp }}/kt2-compose-evidence/summary.md
+          retention-days: 30
+          if-no-files-found: error
