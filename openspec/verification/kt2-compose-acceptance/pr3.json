@@ -62,6 +62,21 @@
   },
   "links": [
     {
+      "task": "1.2",
+      "target": "SC-CAF-006",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_first_start_timeout_registers_only_expected_resources_for_cleanup"
+    },
+    {
+      "task": "1.2",
+      "target": "SC-CAF-003",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_http_probe_rejects_valid_response_after_recovery_deadline"
+    },
+    {
+      "task": "3.2",
+      "target": "SC-CAF-006",
+      "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_only_structurally_valid_failed_report_with_clean_summary_may_upload"
+    },
+    {
       "task": "1.1",
       "target": "SC-CAF-006",
       "test": "scripts/tests/test_compose_acceptance.py::AcceptanceTests::test_guards"

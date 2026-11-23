@@ -1,7 +1,9 @@
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
@@ -84,6 +86,25 @@ class AcceptanceTests(unittest.TestCase):
         connection.return_value.request.assert_called_once_with("GET", "/health/ready")
         connection.return_value.close.assert_called_once()
 
+    def test_http_probe_rejects_valid_response_after_recovery_deadline(self):
+        response = Mock(status=200)
+        response.read.return_value = b'{"status":"ok"}'
+        with patch("http.client.HTTPConnection") as connection:
+            connection.return_value.getresponse.return_value = response
+            with patch.object(a, "monotonic", side_effect=(14.9, 14.9, 15.1)):
+                with self.assertRaisesRegex(a.Failure, "^timeout$"):
+                    a.probe(32768, "/health/ready", 200, deadline=15)
+        connection.return_value.close.assert_called_once()
+
+    def test_desktop_version_uses_operator_confirmation_only_after_lookup_failure(self):
+        result = Mock(returncode=0, stdout="4.33.1.161083\n")
+        with patch.object(a, "invoke", return_value=result):
+            self.assertEqual(a.desktop_version({}, "4.99.0"), ("4.33.1.161083", "windows-file-version"))
+        with patch.object(a, "invoke", side_effect=a.Failure("command-failed")):
+            self.assertEqual(a.desktop_version({}, "4.33.1"), ("4.33.1", "operator-desktop-ui"))
+            with self.assertRaises(a.Failure):
+                a.desktop_version({}, None)
+
     def test_startup_order(self):
         a.migration_order(
             {"ExitCode": 0, "FinishedAt": "2026-11-23T00:00:00.1Z"},
@@ -114,7 +135,8 @@ class AcceptanceTests(unittest.TestCase):
     def test_report_validation(self):
         sha = "a" * 40
         report = a.make_report(sha, "linux-ci")
-        a.validate_report(report, sha)
+        with self.assertRaises(a.Failure):
+            a.validate_report(report, sha)
         report["status"] = "PASS"
         with self.assertRaises(a.Failure):
             a.validate_report(report, sha)
@@ -139,7 +161,7 @@ class AcceptanceTests(unittest.TestCase):
             "persistence": dict(run_id="60c474a3-1332-43ce-a044-741f28e317ff",
                                 schema_version="1", created_at="2026-11-23T00:00:10+00:00",
                                 status="CREATED", count="1", start_ms="1000", migration_exit="0",
-                                revision="0001_runs", ready="200 ok", **volume),
+                                revision="0001_runs", ready="200 ok", ready_ms="9", **volume),
             "database-loss": dict(live="200 ok", ready="503 unavailable",
                                   healthz="503 unavailable", ready_ms="100", healthz_ms="20", **api),
             "database-recovery": dict(ready="200 ok", healthz="200 ok", api="same", ready_ms="12",
@@ -160,6 +182,7 @@ class AcceptanceTests(unittest.TestCase):
             lambda r: r["checks"]["persistence"]["facts"].update(volume_created="2026-11-23T00:00:11Z"),
             lambda r: r["checks"]["database-recovery"]["facts"].update(api_id="c" * 64),
             lambda r: r["checks"]["database-recovery"]["facts"].update(ready_ms="3501"),
+            lambda r: r["checks"]["preflight"]["facts"].update(engine="desktop-linux"),
         ):
             invalid = copy.deepcopy(report)
             mutation(invalid)
@@ -170,10 +193,35 @@ class AcceptanceTests(unittest.TestCase):
         sha = "a" * 40
         report = a.make_report(sha, "windows")
         self.assertEqual(report["status"], "NOT VERIFIED")
+        with self.assertRaises(a.Failure):
+            a.validate_report(report, sha)
+        report["checks"]["preflight"] = a.check_entry(
+            "preflight", a.monotonic(), a.Failure("engine-unavailable"),
+        )
         a.validate_report(report, sha)
         report["status"] = "PASS"
         with self.assertRaises(a.Failure):
             a.validate_report(report, sha)
+
+    def test_only_structurally_valid_failed_report_with_clean_summary_may_upload(self):
+        sha = "a" * 40
+        report = a.make_report(sha, "linux-ci")
+        report["checks"]["preflight"] = a.check_entry("preflight", a.monotonic(), a.Failure("context"))
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            a.write_report(path, report, [])
+            args = ["compose-acceptance.py", "--expected-sha", sha, "--verify-report",
+                    str(path / "report.json"), "--check-summary"]
+            with patch.object(a.sys, "argv", args):
+                self.assertEqual(a.main(), 1)
+            with patch.object(a.sys, "argv", [*args, "--allow-failed-report"]):
+                self.assertEqual(a.main(), 0)
+                (path / "summary.md").write_text("raw diagnostic output", encoding="utf-8")
+                self.assertEqual(a.main(), 1)
+                (path / "summary.md").write_text(a.summary_for(report), encoding="utf-8")
+                report["unexpected"] = "raw diagnostic output"
+                (path / "report.json").write_text(json.dumps(report), encoding="utf-8")
+                self.assertEqual(a.main(), 1)
 
     def test_local_linux_success_is_not_acceptance(self):
         self.assertEqual(a.successful_status("linux-local"), "SMOKE PASS")
@@ -189,6 +237,35 @@ class AcceptanceTests(unittest.TestCase):
         project.stop.side_effect = a.Failure("ownership")
         self.assertIs(a.cleanup([project], failure), failure)
         self.assertEqual(a.cleanup([project], None).code, "ownership")
+        project.stop.side_effect = KeyError("bad evidence")
+        self.assertIs(a.cleanup([project], failure), failure)
+        self.assertEqual(a.cleanup([project], None).code, "ownership")
+
+    def test_first_start_timeout_registers_only_expected_resources_for_cleanup(self):
+        project = a.Project.__new__(a.Project)
+        project.engine = Mock(env={})
+        project.name = "kt2caf-" + "1" * 24 + "-positive"
+        project.env_file = Path("isolated.env")
+        project.assert_fresh = Mock()
+        project.verify = Mock()
+        project.started = False
+        project.containers = {}
+        timeout = a.Failure("timeout")
+        with patch.object(a, "invoke", side_effect=timeout):
+            with self.assertRaises(a.Failure) as error:
+                project.start()
+        self.assertIs(error.exception, timeout)
+        project.verify.assert_called_once_with(("db", "migrate", "api"), created=True)
+        self.assertTrue(project.started)
+
+    def test_launch_error_survives_ownership_failure_during_capture(self):
+        project = a.Project.__new__(a.Project)
+        project.verify = Mock(side_effect=a.Failure("ownership"))
+        error = a.Failure("timeout")
+        with self.assertRaises(a.Failure) as actual:
+            project.launch(("db",), Mock(side_effect=error))
+        self.assertIs(actual.exception, error)
+        project.verify.assert_called_once_with(("db",), created=True)
 
     def test_command_timeout_discards_output(self):
         with patch.object(a.subprocess, "run", side_effect=subprocess.TimeoutExpired(

@@ -169,6 +169,8 @@ def cleanup(projects, first_error):
             project.stop()
         except Failure as error:
             first_error = first_error or error
+        except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError):
+            first_error = first_error or Failure("ownership")
     return first_error
 
 
@@ -187,7 +189,7 @@ def successful_status(mode):
 # Evidence values come from selected fields and fixed enums. No opaque command output enters a report.
 FACTS = {
     "preflight": {"checkout": r"clean", "engine": r"unix|desktop-linux",
-                  "version_source": r"docker|windows-file-version"},
+                  "version_source": r"docker|windows-file-version|operator-desktop-ui"},
     "startup": {"start_ms": r"[0-9]{1,5}", "revision": REV,
                 "migration_exit": r"0", "migrate_before_api": r"yes",
                 "migration_finished": TIMESTAMP, "api_started": TIMESTAMP,
@@ -200,7 +202,8 @@ FACTS = {
     "persistence": {"run_id": r"[a-f0-9-]{36}", "schema_version": r"1",
                     "created_at": r"[0-9T:.\-]+\+00:00", "status": r"CREATED",
                     "count": r"1", "start_ms": r"[0-9]{1,5}", "migration_exit": r"0",
-                    "revision": REV, "ready": r"200 ok", "volume_name": PROJECT + r"_postgres",
+                    "revision": REV, "ready": r"200 ok", "ready_ms": r"[0-9]{1,4}",
+                    "volume_name": PROJECT + r"_postgres",
                     "volume_created": TIMESTAMP, "image": r"sha256:" + CONTAINER},
     "database-loss": {"live": r"200 ok", "ready": r"503 unavailable", "healthz": r"503 unavailable",
                       "api_id": CONTAINER, "api_started": TIMESTAMP,
@@ -252,6 +255,17 @@ def validate_report(report, expected_sha):
                     "report")
             for key, pattern in expected.items():
                 require(isinstance(facts[key], str) and re.fullmatch(pattern, facts[key]), "report")
+    preflight = checks.get("preflight", {})
+    if preflight.get("result") == "PASS":
+        preflight_facts = preflight["facts"]
+        if mode == "windows":
+            require(preflight_facts["engine"] == "desktop-linux"
+                    and preflight_facts["version_source"] in {
+                        "windows-file-version", "operator-desktop-ui",
+                    }, "report")
+        else:
+            require(preflight_facts["engine"] == "unix"
+                    and preflight_facts["version_source"] == "docker", "report")
     if status == successful_status(mode):
         expected_projects = {"positive", "negative"} if mode == "linux-ci" else {"positive"}
         required_versions = set(VERSION_KEYS if mode == "windows" else VERSION_KEYS[:-1])
@@ -274,15 +288,13 @@ def validate_report(report, expected_sha):
                     for key, value in entry.get("facts", {}).items()
                     if key in {"live_ms", "ready_ms", "healthz_ms"}), "report")
     elif status == "NOT VERIFIED":
-        require(set(checks) <= {"preflight"}, "report")
-    elif checks:
+        require(set(checks) == {"preflight"} and preflight["result"] == "FAIL"
+                and not projects, "report")
+    else:
         require(any(item["result"] == "FAIL" for item in checks.values()), "report")
 
 
-def write_report(dir_path, report, sensitive):
-    validate_report(report, report["sha"])
-    encoded = json.dumps(report, indent=2, ensure_ascii=True) + "\n"
-    require(all(value not in encoded for value in sensitive), "report")
+def summary_for(report):
     title = f'# Compose acceptance: {report["status"]}'
     lines = [title, "", f'- Commit: {report["sha"]}', f'- Platform: {report["platform"]}']
     lines += [f"- {tool}: {version}" for tool, version in report["versions"].items()]
@@ -291,8 +303,16 @@ def write_report(dir_path, report, sensitive):
     for name, check in report["checks"].items():
         result = check.get("code", check["result"])
         lines.append(f'| {name} | {COMMANDS[name]} | {result} | {check["ms"]} |')
+    return "\n".join(lines) + "\n"
+
+
+def write_report(dir_path, report, sensitive):
+    validate_report(report, report["sha"])
+    encoded = json.dumps(report, indent=2, ensure_ascii=True) + "\n"
+    summary = summary_for(report)
+    require(all(value not in encoded and value not in summary for value in sensitive), "report")
     dir_path.mkdir(parents=True, exist_ok=True)
-    for name, content in (("report.json", encoded), ("summary.md", "\n".join(lines) + "\n")):
+    for name, content in (("report.json", encoded), ("summary.md", summary)):
         with (dir_path / name).open("x", encoding="utf-8", newline="\n") as destination:
             destination.write(content)
 
@@ -314,6 +334,19 @@ def check_entry(name, started, error=None, facts=None):
     return entry
 
 
+def desktop_version(env, confirmed):
+    try:
+        installed = stdout(invoke([
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+            "(Get-Item -LiteralPath (Join-Path $env:ProgramFiles "
+            "'Docker/Docker/Docker Desktop.exe') -ErrorAction Stop).VersionInfo.ProductVersion",
+        ], 8, env))
+        return version(installed), "windows-file-version"
+    except Failure:
+        require(confirmed is not None, "context")
+        return version(confirmed), "operator-desktop-ui"
+
+
 def checkout(sha, env):
     for command, expected in (
         (["rev-parse", "HEAD"], sha),
@@ -323,7 +356,7 @@ def checkout(sha, env):
 
 
 class Engine:
-    def __init__(self, mode, context, env, versions):
+    def __init__(self, mode, context, env, versions, confirmed_desktop=None):
         self.env = {k: v for k, v in env.items() if k.upper() != "DOCKER_CONTEXT"}
         endpoint = stdout(invoke(
             ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}", context],
@@ -337,15 +370,10 @@ class Engine:
             raise Failure("engine-unavailable") from None
         require(info["OSType"] == "linux" and info["ID"], "context")
         self.identity = {key: info[key] for key in ("ID", "OSType", "OperatingSystem")}
+        self.version_source = "docker"
         if mode == "windows":
             require(info["OperatingSystem"] == "Docker Desktop", "context")
-            # Older Docker Desktop releases do not provide the desktop CLI plugin.
-            desktop = stdout(invoke([
-                "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-                "(Get-Item -LiteralPath (Join-Path $env:ProgramFiles "
-                "'Docker/Docker/Docker Desktop.exe') -ErrorAction Stop).VersionInfo.ProductVersion",
-            ], 8, self.env))
-            versions["desktop"] = version(desktop)
+            versions["desktop"], self.version_source = desktop_version(self.env, confirmed_desktop)
         versions.update({
             "python": version(platform.python_version()),
             "docker": version(self.run("version", "--format", "{{.Client.Version}}")),
@@ -464,12 +492,25 @@ class Project:
         self.engine.ensure()
         self.compose("build", "--builder", "default", "api", timeout=300)
 
+    def launch(self, changes, action):
+        self.started = True
+        try:
+            result = action()
+        except (Failure, KeyboardInterrupt):
+            # A timed-out client may already have created Docker resources.
+            # Record only expected and verified resources for scoped cleanup.
+            try:
+                self.verify(changes, created=True)
+            except (Failure, OSError, ValueError, TypeError, KeyError):
+                pass
+            raise
+        return result, self.verify(changes, created=True)
+
     def start(self, *, failure=False, update=False):
         if self.started:
             self.verify()
         else:
             self.assert_fresh()
-            self.started = True
         start = monotonic()
         args = [
             sys.executable, str(ROOT / "scripts/start-local.py"), "--project", self.name,
@@ -477,10 +518,13 @@ class Project:
         ]
         # Let the launcher enforce its own 90-second deadline and terminate its
         # child. The outer allowance covers Python process startup and exit.
-        result = invoke(args + (["--update"] if update else []), 94, self.engine.env)
-        elapsed_ms = round((monotonic() - start) * 1000)
         changes = ("migrate", "api") if "db" in self.containers else ("db", "migrate", "api")
-        observed = self.verify(changes, created=True)
+
+        def run_launcher():
+            result = invoke(args + (["--update"] if update else []), 94, self.engine.env)
+            return result, round((monotonic() - start) * 1000)
+
+        (result, elapsed_ms), observed = self.launch(changes, run_launcher)
         if failure:
             return result, observed
         require(result.returncode == 0 and elapsed_ms <= 90000, "command-failed")
@@ -549,7 +593,9 @@ def probe(port, path, expected, *, deadline=None):
             conn.request("GET", path)
             response = conn.getresponse()
             payload = json.loads(response.read(512))
-            elapsed = monotonic() - started
+            finished = monotonic()
+            require(deadline is None or finished <= deadline, "timeout")
+            elapsed = finished - started
             observed = health_status(response.status, payload, elapsed)
         except (OSError, http.client.HTTPException, ValueError):
             raise Failure("http") from None
@@ -625,14 +671,14 @@ def positive(project, check, mode):
         elapsed_ms, observed = project.start(update=True)
         port = binding(observed)
         require(project.revision() == revision, "revision")
-        probe(port, "/health/ready", 200)
+        ready_ms = probe(port, "/health/ready", 200)
         after = json.loads(project.api_python(RUN_STORE_CODE, row[0]))
         count = int(project.psql("SELECT count(*) FROM qa.runs"))
         persisted(row, after, count)
         api_state = (observed["api"]["Id"], observed["api"]["State"]["StartedAt"])
         return dict(zip(("run_id", "schema_version", "created_at", "status"), row)) | {
             "count": count, "start_ms": elapsed_ms, "migration_exit": 0, "revision": revision,
-            "ready": "200 ok", **project.storage_facts(observed),
+            "ready": "200 ok", "ready_ms": ready_ms, **project.storage_facts(observed),
         }
 
     check("persistence", persistence)
@@ -666,9 +712,9 @@ def positive(project, check, mode):
 
 def negative(project):
     project.assert_fresh()
-    project.started = True
-    project.compose("up", "-d", "--no-build", "--wait", "--wait-timeout", "39", "db", timeout=40)
-    project.verify(("db",), created=True)
+    project.launch(("db",), lambda: project.compose(
+        "up", "-d", "--no-build", "--wait", "--wait-timeout", "39", "db", timeout=40,
+    ))
     tables = "SELECT to_regclass('qa.runs') IS NULL AND to_regclass('qa.alembic_version') IS NULL"
     require(project.psql(tables) == "t", "migration-failure")
     project.psql("ALTER SCHEMA qa OWNER TO qa_admin")
@@ -689,7 +735,7 @@ def negative(project):
             "api": "never-started", "tables": "absent"}
 
 
-def perform(mode, sha, context, report_dir):
+def perform(mode, sha, context, report_dir, confirmed_desktop=None):
     report = make_report(sha, mode)
     projects, sensitive = [], []
     env = dict(os.environ)
@@ -717,7 +763,7 @@ def perform(mode, sha, context, report_dir):
             report["run"] = "https://github.com/andreigkuznetsov/ai-agents-qa-demo/actions/runs/" + run
         check_environment(env, context)
         checkout(sha, env)
-        return Engine(mode, context, env, report["versions"])
+        return Engine(mode, context, env, report["versions"], confirmed_desktop)
 
     engine = None
 
@@ -725,7 +771,7 @@ def perform(mode, sha, context, report_dir):
         nonlocal engine
         engine = preflight()
         return {"checkout": "clean", "engine": "desktop-linux" if mode == "windows" else "unix",
-                "version_source": "windows-file-version" if mode == "windows" else "docker"}
+                "version_source": engine.version_source}
 
     error = None
     with tempfile.TemporaryDirectory(prefix="kt2-compose-") as tmp:
@@ -795,15 +841,29 @@ def main():
     parser.add_argument("--expected-sha", required=True)
     parser.add_argument("--context")
     parser.add_argument("--report-dir", type=Path)
+    parser.add_argument("--desktop-version", help="Version confirmed in Docker Desktop About")
+    parser.add_argument("--check-summary", action="store_true")
+    parser.add_argument("--allow-failed-report", action="store_true")
     args = parser.parse_args()
+    if args.desktop_version and not args.windows:
+        parser.error("--desktop-version requires --windows")
+    if (args.check_summary or args.allow_failed_report) and not args.verify_report:
+        parser.error("evidence options require --verify-report")
     try:
         require(re.fullmatch(SHA, args.expected_sha), "checkout")
         if args.verify_report:
             require(args.verify_report.stat().st_size <= 128 * 1024, "report")
             report = json.loads(args.verify_report.read_text(encoding="utf-8"))
             validate_report(report, args.expected_sha)
+            if args.check_summary:
+                summary = args.verify_report.with_name("summary.md")
+                require(summary.stat().st_size <= 128 * 1024
+                        and summary.read_text(encoding="utf-8") == summary_for(report), "report")
             print(report["platform"], report["sha"], report["status"])
-            return 0 if report["status"] == "PASS" else 1
+            accepted = report["status"] == "PASS" or (
+                args.allow_failed_report and report["status"] == "FAIL"
+            )
+            return 0 if accepted else 1
         if not args.context or not args.report_dir:
             parser.error("--context and --report-dir are required for a run")
         if args.windows:
@@ -812,7 +872,7 @@ def main():
         report_dir = args.report_dir.resolve()
         report_dir.mkdir(parents=True, exist_ok=False)
         return perform("windows" if args.windows else "linux-ci" if args.linux_ci else "linux-local",
-                       args.expected_sha, args.context, report_dir)
+                       args.expected_sha, args.context, report_dir, args.desktop_version)
     except (OSError, TypeError, ValueError, Failure) as error:
         print("Acceptance error:", error.code if isinstance(error, Failure) else "report")
         return 1
