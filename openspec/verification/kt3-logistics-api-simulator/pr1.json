@@ -1,0 +1,144 @@
+{
+  "change_id": "kt3-logistics-api-simulator",
+  "issue": 14,
+  "kind": "implementation",
+  "scope": [
+    ".gitattributes",
+    "backend/app/logistics_auth.py",
+    "backend/app/migrate.py",
+    "backend/migrations/versions/0002_las_fixtures.py",
+    "backend/tests/conftest.py",
+    "backend/tests/fixtures/logistics/v1.json",
+    "backend/tests/support/__init__.py",
+    "backend/tests/support/kt3_fixture_loader.py",
+    "backend/tests/test_kt3_auth.py",
+    "backend/tests/test_kt3_fixtures.py",
+    "backend/tests/test_migrations.py",
+    "backend/tests/test_permissions.py",
+    "openspec/changes/kt3-logistics-api-simulator/tasks.md",
+    "openspec/verification/kt3-logistics-api-simulator/pr1.json"
+  ],
+  "tasks": [
+    "1.1",
+    "1.2",
+    "1.3",
+    "1.4",
+    "1.5",
+    "1.6",
+    "1.7"
+  ],
+  "targets": {
+    "sc001": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-001",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc002": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-002",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc003": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-003",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc004": {
+      "requirement": "AC-LAS-002",
+      "scenario": "SC-LAS-004",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc005": {
+      "requirement": "AC-LAS-002",
+      "scenario": "SC-LAS-005",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    }
+  },
+  "links": [
+    {
+      "task": "1.1",
+      "target": "sc001",
+      "test": "backend/tests/test_migrations.py::test_kt3_source_revision_matrix"
+    },
+    {
+      "task": "1.1",
+      "target": "sc004",
+      "test": "backend/tests/test_kt3_auth.py::test_kt3_auth_scope_and_no_management"
+    },
+    {
+      "task": "1.2",
+      "target": "sc001",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "1.2",
+      "target": "sc002",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
+    },
+    {
+      "task": "1.3",
+      "target": "sc001",
+      "test": "backend/tests/test_permissions.py::test_api_grants_after_repeat"
+    },
+    {
+      "task": "1.3",
+      "target": "sc005",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "1.4",
+      "target": "sc001",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "1.4",
+      "target": "sc003",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "1.4",
+      "target": "sc005",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "1.5",
+      "target": "sc001",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_bundle_bytes_and_validation"
+    },
+    {
+      "task": "1.5",
+      "target": "sc003",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "1.6",
+      "target": "sc001",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
+    },
+    {
+      "task": "1.6",
+      "target": "sc002",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
+    },
+    {
+      "task": "1.6",
+      "target": "sc003",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "1.6",
+      "target": "sc005",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "1.7",
+      "target": "sc004",
+      "test": "backend/tests/test_kt3_auth.py::test_kt3_auth_scope_and_no_management"
+    },
+    {
+      "task": "1.7",
+      "target": "sc005",
+      "test": "backend/tests/test_kt3_auth.py::test_kt3_auth_scope_and_no_management"
+    }
+  ]
+}

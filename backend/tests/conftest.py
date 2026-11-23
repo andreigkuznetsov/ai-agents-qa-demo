@@ -11,7 +11,11 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from alembic import command
 from psycopg import Connection
+from sqlalchemy import create_engine
+
+from app.database import Settings, migration_config
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -153,3 +157,22 @@ def migrated_db(fresh: Project) -> Project:
     fresh.compose("up", "-d", "--wait", "--wait-timeout", "40", "db")
     fresh.compose("run", "--rm", "--no-deps", "migrate")
     return fresh
+
+
+def prepare_kt2(project: Project) -> None:
+    """Create the historical revision in a disposable test database."""
+    engine = create_engine(
+        Settings(password=project.passwords["migrate"], host=project.host).url(
+            "qa_migrate"
+        ),
+        hide_parameters=True,
+    )
+    try:
+        with engine.begin() as conn:
+            config = migration_config()
+            config.attributes["connection"] = conn
+            command.upgrade(config, "0001_runs")
+            conn.exec_driver_sql("GRANT SELECT, INSERT ON qa.runs TO qa_api")
+            conn.exec_driver_sql("GRANT SELECT ON qa.alembic_version TO qa_api")
+    finally:
+        engine.dispose()
