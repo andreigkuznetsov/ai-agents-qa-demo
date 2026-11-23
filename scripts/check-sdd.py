@@ -15,6 +15,7 @@ import sys
 KT1 = "7c2d939cec68fa39eae9f3dfb84e9f055404810c"
 MANIFEST = re.compile(r"openspec/verification/([a-z0-9-]+)/[a-z0-9-]+\.json")
 PLANNING = re.compile(r"openspec/verification/([a-z0-9-]+)/planning\.json")
+DECISIONS = re.compile(r"docs/development/[a-z0-9-]+-business-decisions\.md")
 SPEC = re.compile(r"openspec/(?:specs|changes/(?!archive/)[^/]+/specs)/(?:[^/]+/)+spec\.md")
 TASK_LINE = re.compile(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]*\[[ \t]*([^\]\s]?)[ \t]*\](?![([])[ \t]*(.*)$", re.M)
 TASK_ID = re.compile(r"^([0-9]+(?:\.[0-9]+)*)[ \t]+")
@@ -194,8 +195,7 @@ def check_planning(record, manifest, change_id, head, changed, old_files, files)
     require(PLANNING.fullmatch(manifest), "Use planning.json for a planning manifest")
     root = f"openspec/changes/{change_id}/"
     decisions = repo_path(record["decisions"])
-    require(re.fullmatch(r"docs/development/[a-z0-9-]+-business-decisions\.md", decisions),
-            "Invalid planning decisions path")
+    require(DECISIONS.fullmatch(decisions), "Invalid planning decisions path")
     specs = {path for path in files if path.startswith(root) and SPEC.fullmatch(path)}
     artifacts = {root + name for name in (".openspec.yaml", "proposal.md", "design.md", "tasks.md")}
     artifacts.update(specs | {decisions})
@@ -232,19 +232,20 @@ def check_planning(record, manifest, change_id, head, changed, old_files, files)
 
 
 def protect_planning_baselines(base, head, changed, old_files, files):
+    decisions = {path for path in changed if DECISIONS.fullmatch(path)}
     for manifest in sorted(path for path in old_files if PLANNING.fullmatch(path)):
         require(manifest not in changed, "Accepted planning manifest is immutable")
         change_id = PLANNING.fullmatch(manifest)[1]
         root = f"openspec/changes/{change_id}/"
-        affected = {path for path in changed if path.startswith(root) and SPEC.fullmatch(path)}
-        if not affected:
+        affected = {path for path in changed if path.startswith(root) and path != root + "tasks.md"}
+        if not (affected or decisions):
             continue
         record = json.loads(git("show", f"{base}:{manifest}"), object_pairs_hook=unique_object)
-        specs = {path for path in record["artifacts"] if SPEC.fullmatch(path)}
-        require(affected <= specs, "Cannot add a delta to an accepted planning baseline")
+        require(record["decisions"] not in decisions, "Approved business decisions are immutable")
+        require(affected <= record["artifacts"].keys(), "Cannot add an artifact to an accepted planning baseline")
         for path in sorted(affected):
             require(path not in files and not any(p.startswith(root) for p in files),
-                    f"Approved planning delta is immutable: {path}")
+                    f"Approved planning artifact is immutable: {path}")
             suffix = path[len(root):]
             archived = [p for p in changed & files if re.fullmatch(
                 rf"openspec/changes/archive/\d{{4}}-\d{{2}}-\d{{2}}-{re.escape(change_id)}/"
@@ -252,7 +253,7 @@ def protect_planning_baselines(base, head, changed, old_files, files):
             require(len(archived) == 1
                     and git_bytes("cat-file", "blob", f"{head}:{archived[0]}")
                     == git_bytes("cat-file", "blob", f"{base}:{path}"),
-                    f"Approved planning delta can only be archived unchanged: {path}")
+                    f"Approved planning artifact can only be archived unchanged: {path}")
 
 
 def check(base, head, issue, kt1=KT1):

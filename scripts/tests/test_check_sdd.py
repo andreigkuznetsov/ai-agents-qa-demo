@@ -279,8 +279,20 @@ class SDDTests(unittest.TestCase):
         self.accept_planning_then_implementation()
         self.record["scope"].append(DELTA)
         self.write(DELTA, self.planning_files[DELTA].replace("respond.", "stop."))
-        with self.assertRaisesRegex(ValueError, "Approved planning delta is immutable"):
+        with self.assertRaisesRegex(ValueError, "Approved planning artifact is immutable"):
             self.verify_after_planning()
+
+    def test_implementation_cannot_change_approved_proposal_or_decisions(self):
+        self.accept_planning_then_implementation()
+        proposal = "openspec/changes/sample/proposal.md"
+        for path, error in ((proposal, "Approved planning artifact"), (self.decisions, "Approved business decisions")):
+            with self.subTest(path=path):
+                self.record["scope"].append(path)
+                self.write(path, self.planning_files[path] + "\nChanged contract\n")
+                with self.assertRaisesRegex(ValueError, error):
+                    self.verify_after_planning()
+                self.write(path, self.planning_files[path])
+                self.record["scope"].remove(path)
 
     def test_implementation_can_archive_approved_delta_unchanged(self):
         self.accept_planning_then_implementation()
