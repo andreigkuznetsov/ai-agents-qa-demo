@@ -33,6 +33,8 @@ docker run --rm -p 127.0.0.1:8000:8000 ai-agents-qa-demo:local
 
 ## Локальный PostgreSQL и health
 
+[Инструкция КТ2 для Linux и Windows](docs/development/kt2-compose-runbook.md) описывает запуск из чистого checkout, изолированную проверку Compose и чтение отчётов.
+
 Перед запуском задайте независимые значения `QA_BOOTSTRAP_PASSWORD`, `QA_MIGRATE_PASSWORD` и `QA_API_PASSWORD` в окружении или в локальном игнорируемом `.env`. Используйте только отдельные тестовые учётные данные. Соберите образ и запустите стенд из корня репозитория.
 
 ```sh
