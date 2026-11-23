@@ -78,8 +78,9 @@ def check_environment(env, context):
         key = name.upper()
         require(
             key not in {"DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_TLS", "DOCKER_TLS_VERIFY",
-                        "DOCKER_CERT_PATH", "DOCKER_API_VERSION"}
-            and not key.startswith(("COMPOSE_", "QA_")),
+                        "DOCKER_CERT_PATH", "DOCKER_API_VERSION", "DOCKER_BUILDKIT",
+                        "DOCKER_DEFAULT_PLATFORM"}
+            and not key.startswith(("COMPOSE_", "QA_", "BUILDKIT_", "BUILDX_")),
             "environment",
         )
         if key == "DOCKER_CONTEXT":
@@ -534,7 +535,7 @@ def binding(observed):
     return int(bound["HostPort"])
 
 
-def http(port, path, expected, *, deadline=None):
+def probe(port, path, expected, *, deadline=None):
     # The numeric loopback address bypasses proxies and redirects.
     while True:
         budget = 3.5 if deadline is None else remaining(deadline, 3.5)
@@ -588,9 +589,9 @@ def positive(project, check, mode):
         elapsed_ms, observed = project.start()
         port = binding(observed)
         revision = project.revision()
-        live_ms = http(port, "/health/live", 200)
-        ready_ms = http(port, "/health/ready", 200)
-        healthz_ms = http(port, "/healthz", 200)
+        live_ms = probe(port, "/health/live", 200)
+        ready_ms = probe(port, "/health/ready", 200)
+        healthz_ms = probe(port, "/healthz", 200)
         postgres = project.psql("SHOW server_version_num")
         require(re.fullmatch(r"[0-9]{6}", postgres), "revision")
         postgres = f"{int(postgres) // 10000}.{int(postgres) % 10000}"
@@ -620,7 +621,7 @@ def positive(project, check, mode):
         elapsed_ms, observed = project.start(update=True)
         port = binding(observed)
         require(project.revision() == revision, "revision")
-        http(port, "/health/ready", 200)
+        probe(port, "/health/ready", 200)
         after = json.loads(project.api_python(RUN_STORE_CODE, row[0]))
         count = int(project.psql("SELECT count(*) FROM qa.runs"))
         persisted(row, after, count)
@@ -636,19 +637,19 @@ def positive(project, check, mode):
 
     def loss():
         project.stop("db")
-        http(port, "/health/live", 200)
+        probe(port, "/health/live", 200)
         return {"live": "200 ok", "ready": "503 unavailable", "healthz": "503 unavailable",
                 "api_id": api_state[0], "api_started": api_state[1],
-                "ready_ms": http(port, "/health/ready", 503),
-                "healthz_ms": http(port, "/healthz", 503)}
+                "ready_ms": probe(port, "/health/ready", 503),
+                "healthz_ms": probe(port, "/healthz", 503)}
 
     def recovery():
         project.verify()
         project.compose("up", "-d", "--no-build", "--no-recreate", "--wait", "--wait-timeout", "39",
                         "db", timeout=40)
         deadline = monotonic() + 15
-        ready_ms = http(port, "/health/ready", 200, deadline=deadline)
-        healthz_ms = http(port, "/healthz", 200, deadline=deadline)
+        ready_ms = probe(port, "/health/ready", 200, deadline=deadline)
+        healthz_ms = probe(port, "/healthz", 200, deadline=deadline)
         api = project.verify()["api"]
         require((api["Id"], api["State"]["StartedAt"]) == api_state, "ownership")
         return {"ready": "200 ok", "healthz": "200 ok", "api": "same",

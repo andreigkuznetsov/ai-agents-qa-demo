@@ -18,7 +18,7 @@ class AcceptanceTests(unittest.TestCase):
         self.assertTrue(a.local_endpoint("windows", "npipe:////./pipe/dockerDesktopLinuxEngine"))
         for endpoint in ("ssh://remote", "tcp://127.0.0.1:2375", "unix:///tmp/proxy"):
             self.assertFalse(a.local_endpoint("linux", endpoint))
-        for key in ("DOCKER_HOST", "DOCKER_CONFIG", "COMPOSE_FILE", "QA_HTTP_PORT"):
+        for key in ("DOCKER_HOST", "DOCKER_CONFIG", "COMPOSE_FILE", "QA_HTTP_PORT", "BUILDX_BUILDER"):
             with self.assertRaises(a.Failure):
                 a.check_environment({key: "external"}, "default")
 
@@ -65,6 +65,16 @@ class AcceptanceTests(unittest.TestCase):
         ):
             with self.assertRaises(a.Failure):
                 a.health_status(status, body, elapsed)
+
+    def test_http_probe_uses_loopback_and_validates_response(self):
+        response = Mock(status=200)
+        response.read.return_value = b'{"status":"ok"}'
+        with patch("http.client.HTTPConnection") as connection:
+            connection.return_value.getresponse.return_value = response
+            self.assertLessEqual(a.probe(32768, "/health/ready", 200), 3500)
+        connection.assert_called_once_with("127.0.0.1", 32768, timeout=3.5)
+        connection.return_value.request.assert_called_once_with("GET", "/health/ready")
+        connection.return_value.close.assert_called_once()
 
     def test_startup_order(self):
         a.migration_order(
