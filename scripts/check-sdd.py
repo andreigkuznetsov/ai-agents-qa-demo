@@ -142,10 +142,10 @@ def test_exists(text, selector):
                and node.name == parts[-1] for node in nodes)
 
 
-def check_planning_trace(task_text, specs):
+def check_planning_trace(task_text, specs, *, allow_completed=False):
     scenario_owners = {}
     requirements = set()
-    for spec in specs:
+    for path, spec in specs.items():
         for requirement, (_, scenarios) in spec_blocks(spec).items():
             require(re.fullmatch(r"AC-(?:[A-Z][A-Z0-9]*-)*\d+", requirement)
                     and requirement not in requirements and scenarios,
@@ -155,15 +155,15 @@ def check_planning_trace(task_text, specs):
                 require(re.fullmatch(r"SC-(?:[A-Z][A-Z0-9]*-)*\d+", scenario)
                         and scenario not in scenario_owners,
                         f"Invalid or duplicate planning scenario: {scenario}")
-                scenario_owners[scenario] = requirement
+                scenario_owners[scenario] = (path, requirement)
     require(requirements, "Planning requires at least one requirement and scenario")
 
-    task_ids = set()
+    tasks = {}
     covered = set()
     text = "".join(markdown_lines(task_text.lstrip("\ufeff")))
     for marker, row in TASK_LINE.findall(text):
         task = TASK_ID.match(row)
-        require(task and not marker and task[1] not in task_ids,
+        require(task and (not marker or allow_completed and marker.lower() == "x") and task[1] not in tasks,
                 "Planning requires unique, unchecked, numbered tasks")
         refs = set()
         for prefix, start, end in PLAN_REFERENCE.findall(row):
@@ -173,18 +173,19 @@ def check_planning_trace(task_text, specs):
             refs.update(f"{prefix}{value:0{len(start)}d}" for value in range(int(start), int(end or start) + 1))
         ac = {ref for ref in refs if ref.startswith("AC-")}
         sc = refs - ac
-        require(sc and sc <= scenario_owners.keys() and ac == {scenario_owners[ref] for ref in sc},
+        require(sc and sc <= scenario_owners.keys() and ac == {scenario_owners[ref][1] for ref in sc},
                 f"Invalid AC/SC trace in planning task {task[1]}")
         dependency = PLAN_DEPENDENCIES.search(row)
         require(dependency, f"Missing dependencies in planning task {task[1]}")
         dependencies = [value.strip() for value in dependency[1].split(",")]
-        if dependency[1] == "нет" or (not task_ids and not re.search(r"\b\d+\.", dependency[1])):
+        if dependency[1] == "нет" or (not tasks and not re.search(r"\b\d+(?:\.|\b)", dependency[1])):
             dependencies = []
-        require(len(dependencies) == len(set(dependencies)) and set(dependencies) <= task_ids,
+        require(len(dependencies) == len(set(dependencies)) and set(dependencies) <= tasks.keys(),
                 f"Invalid dependency in planning task {task[1]}")
         covered.update(sc)
-        task_ids.add(task[1])
+        tasks[task[1]] = (row.rstrip(), bool(marker), {(*scenario_owners[ref], ref) for ref in sc})
     require(covered == scenario_owners.keys(), "Planning tasks must trace every scenario")
+    return tasks
 
 
 def check_planning(record, manifest, change_id, head, changed, old_files, files):
@@ -204,6 +205,9 @@ def check_planning(record, manifest, change_id, head, changed, old_files, files)
             and expected <= files and not expected & old_files
             and not any(path.startswith(root) for path in old_files),
             "Planning requires exactly one new complete package with no other changes")
+    archive_prefix = re.compile(rf"openspec/changes/archive/\d{{4}}-\d{{2}}-\d{{2}}-{re.escape(change_id)}/")
+    require(not any(archive_prefix.match(path) for path in old_files),
+            "Planning cannot reuse an archived change ID")
     require(isinstance(record["artifacts"], dict) and record["artifacts"].keys() == artifacts,
             "Planning SHA-256 entries must match every artifact")
     entries = git("ls-tree", "-r", "-z", head, "--", *sorted(expected)).rstrip("\0").split("\0")
@@ -228,32 +232,60 @@ def check_planning(record, manifest, change_id, head, changed, old_files, files)
             and issue_links & decision_links
             and decisions in {posixpath.normpath(root + link) for link in local_links},
             "Planning proposal, change ID, Issue and decisions must be linked")
-    check_planning_trace(texts[root + "tasks.md"], (texts[path] for path in sorted(specs)))
+    check_planning_trace(texts[root + "tasks.md"], {path: texts[path] for path in sorted(specs)})
 
 
-def protect_planning_baselines(base, head, changed, old_files, files):
+def protect_planning_baselines(base, head, changed, old_files, files, kind):
     decisions = {path for path in changed if DECISIONS.fullmatch(path)}
     for manifest in sorted(path for path in old_files if PLANNING.fullmatch(path)):
         require(manifest not in changed, "Accepted planning manifest is immutable")
         change_id = PLANNING.fullmatch(manifest)[1]
         root = f"openspec/changes/{change_id}/"
-        affected = {path for path in changed if path.startswith(root) and path != root + "tasks.md"}
+        task_path = root + "tasks.md"
+        require(task_path not in changed or kind == "implementation",
+                "Only an implementation manifest can update approved planning tasks")
+        affected = {path for path in changed if path.startswith(root) and path != task_path}
         if not (affected or decisions):
             continue
         record = json.loads(git("show", f"{base}:{manifest}"), object_pairs_hook=unique_object)
         require(record["decisions"] not in decisions, "Approved business decisions are immutable")
         require(affected <= record["artifacts"].keys(), "Cannot add an artifact to an accepted planning baseline")
+        if not affected:
+            continue
+        require(kind == "implementation" and not any(p.startswith(root) for p in files),
+                "Approved planning artifacts are immutable outside a complete archive")
+        archive_roots = {p.split("/", 4)[3] for p in changed & files if re.fullmatch(
+            rf"openspec/changes/archive/\d{{4}}-\d{{2}}-\d{{2}}-{re.escape(change_id)}/.+", p)}
+        require(len(archive_roots) == 1, "Approved planning artifacts must share one archive directory")
+        archive_root = f"openspec/changes/archive/{archive_roots.pop()}/"
+        require(archive_root + "tasks.md" in changed & files, "Approved tasks must move to the same archive")
         for path in sorted(affected):
-            require(path not in files and not any(p.startswith(root) for p in files),
-                    f"Approved planning artifact is immutable: {path}")
-            suffix = path[len(root):]
-            archived = [p for p in changed & files if re.fullmatch(
-                rf"openspec/changes/archive/\d{{4}}-\d{{2}}-\d{{2}}-{re.escape(change_id)}/"
-                + re.escape(suffix), p)]
-            require(len(archived) == 1
-                    and git_bytes("cat-file", "blob", f"{head}:{archived[0]}")
+            archived = archive_root + path[len(root):]
+            require(archived in changed & files
+                    and git_bytes("cat-file", "blob", f"{head}:{archived}")
                     == git_bytes("cat-file", "blob", f"{base}:{path}"),
                     f"Approved planning artifact can only be archived unchanged: {path}")
+
+
+def accepted_slice_trace(read, base, change_id, issue, old_files, task_path, selected_tasks):
+    manifest = f"openspec/verification/{change_id}/planning.json"
+    base_tasks = f"openspec/changes/{change_id}/tasks.md"
+    if manifest not in old_files:
+        return None
+    require(base_tasks in old_files, "Archived planning baseline has no remaining implementation slices")
+    approval = json.loads(read(manifest, base), object_pairs_hook=unique_object)
+    require(approval["issue"] == issue, "Implementation Issue must match the approved planning Issue")
+    specs = {path: read(path, base) for path in approval["artifacts"] if SPEC.fullmatch(path)}
+    approved = check_planning_trace(read(base_tasks, base), specs, allow_completed=True)
+    current = check_planning_trace(read(task_path), specs, allow_completed=True)
+    require([entry[0] for entry in current.values()] == [entry[0] for entry in approved.values()],
+            "Implementation must preserve the approved planning task rows")
+    for task, (_, done, _) in current.items():
+        previous = approved[task][1]
+        require(not previous or done, "Implementation cannot reopen an accepted task")
+        require(done == previous or task in selected_tasks,
+                f"Newly completed planning task is outside the declared slice: {task}")
+    return {task: approved[task][2] for task in selected_tasks}
 
 
 def check(base, head, issue, kt1=KT1):
@@ -279,7 +311,7 @@ def check(base, head, issue, kt1=KT1):
             and record["issue"] == issue and issue > 0, "Change ID or GitHub Issue does not match")
     scope = {repo_path(path) for path in unique_strings(record["scope"], "scope")}
     require(not (changed - scope), "Outside approved scope: " + ", ".join(sorted(changed - scope)))
-    protect_planning_baselines(base, head, changed, old_files, files)
+    protect_planning_baselines(base, head, changed, old_files, files, record["kind"])
     targets = record["targets"]
     links = record["links"]
     require(isinstance(targets, dict) and isinstance(links, list),
@@ -310,6 +342,7 @@ def check(base, head, issue, kt1=KT1):
     require(not PLANNING.fullmatch(manifest_path), "planning.json is reserved for kind planning")
     require(links, "Explicit verification links are required")
     tasks = unique_strings(record["tasks"], "tasks")
+    planning_trace = None
     if record["kind"] == "tooling":
         require(isinstance(record.get("reason"), str) and record["reason"].strip()
                 and not targets and not spec_paths and not archive
@@ -329,6 +362,7 @@ def check(base, head, issue, kt1=KT1):
         declared = [match[1] for _, text in rows if (match := TASK_ID.match(text))]
         require(len(rows) == len(declared) == len(set(declared)) and tasks <= set(declared),
                 "Slice tasks must refer to unique task IDs in tasks.md")
+        planning_trace = accepted_slice_trace(read, base, change_id, issue, old_files, task_paths[0], tasks)
         if archive or any(spec.startswith("openspec/specs/") for spec in spec_paths):
             require(all(mark in {"x", "X"} for mark, _ in rows), "Cannot sync or archive with incomplete tasks")
         require(all(re.fullmatch(rf"openspec/changes/archive/\d{{4}}-\d{{2}}-\d{{2}}-"
@@ -385,6 +419,16 @@ def check(base, head, issue, kt1=KT1):
         task, target = link["task"], link.get("target")
         require(task in tasks and (target in targets if targets else target is None),
                 f"Unknown or missing task/target in verification link: {task}/{target}")
+        if planning_trace is not None:
+            definition = targets[target]
+            spec, requirement, scenario = definition.get("spec"), definition["requirement"], definition.get("scenario")
+            planned = planning_trace[task]
+            synced = {
+                ("openspec/specs/" + path.removeprefix(f"openspec/changes/{change_id}/specs/"), ac, sc)
+                for path, ac, sc in planned
+            } if spec in spec_paths and spec.startswith("openspec/specs/") else set()
+            require((spec, requirement, scenario) in planned | synced,
+                    f"Verification link is outside approved planning trace: {task}/{target}")
         test, manual = link.get("test"), link.get("manual")
         require((test is None) != (manual is None), "A link needs exactly one test or manual record")
         if test is not None:

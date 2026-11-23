@@ -265,6 +265,20 @@ class SDDTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Accepted planning manifest is immutable"):
             self.verify_planning()
 
+    def test_planning_rejects_numeric_self_dependency(self):
+        self.planning_package()
+        original = self.planning_files[TASKS]
+        self.write(TASKS, original.replace("1.1 First. После: нет.", "1 First. После: 1."))
+        with self.assertRaisesRegex(ValueError, "Invalid dependency"):
+            self.verify_planning()
+
+    def test_planning_rejects_archived_change_id(self):
+        self.write("openspec/changes/archive/2026-01-01-sample/tasks.md", "# Archived\n")
+        self.base = self.commit()
+        self.planning_package()
+        with self.assertRaisesRegex(ValueError, "cannot reuse an archived change ID"):
+            self.verify_planning()
+
     def test_implementation_after_planning_only_maps_its_slice(self):
         self.accept_planning_then_implementation()
         self.assertEqual(self.verify_after_planning(), ("sample", 1, "implementation"))
@@ -294,7 +308,34 @@ class SDDTests(unittest.TestCase):
                 self.write(path, self.planning_files[path])
                 self.record["scope"].remove(path)
 
-    def test_implementation_can_archive_approved_delta_unchanged(self):
+    def test_implementation_rejects_wrong_issue_for_approved_plan(self):
+        self.accept_planning_then_implementation()
+        self.record["issue"] = 6
+        self.write(MANIFEST, json.dumps(self.record))
+        with self.assertRaisesRegex(ValueError, "must match the approved planning Issue"):
+            sdd.check(self.planning_base, self.commit(), 6, kt1=self.base)
+
+    def test_implementation_rejects_existing_but_wrong_scenario_for_task(self):
+        self.accept_planning_then_implementation()
+        self.record["targets"]["a"]["scenario"] = "SC-2"
+        with self.assertRaisesRegex(ValueError, "outside approved planning trace"):
+            self.verify_after_planning()
+
+    def test_implementation_rejects_unapproved_tasks_and_unclaimed_completion(self):
+        self.accept_planning_then_implementation()
+        checked = self.planning_files[TASKS].replace("[ ] 1.1", "[x] 1.1")
+        self.write(TASKS, checked + "- [ ] 9.9 New. После: 1.1. AC-1 · SC-1.\n")
+        self.record["tasks"].append("9.9")
+        self.record["links"].append({"task": "9.9", "target": "a", "test": TEST + "::test_example"})
+        with self.assertRaisesRegex(ValueError, "must preserve the approved planning task rows"):
+            self.verify_after_planning()
+        self.record["tasks"].remove("9.9")
+        self.record["links"].pop()
+        self.write(TASKS, checked.replace("[ ] 1.2", "[x] 1.2"))
+        with self.assertRaisesRegex(ValueError, "outside the declared slice"):
+            self.verify_after_planning()
+
+    def archive_planned_change(self):
         self.accept_planning_then_implementation()
         root = "openspec/changes/sample/"
         archive = "openspec/changes/archive/2026-01-01-sample/"
@@ -305,10 +346,28 @@ class SDDTests(unittest.TestCase):
             Path(source).rename(target)
             self.record["scope"] += [source, target.as_posix()]
         self.write(archive + "tasks.md", self.planning_files[TASKS].replace("[ ]", "[x]"))
-        self.record["targets"]["a"]["spec"] = DELTA
-        self.assertEqual(self.verify_after_planning(), ("sample", 1, "implementation"))
+        self.record["tasks"] = ["1.1", "1.2", "1.3"]
+        self.record["targets"]["b"] = {"requirement": "AC-1", "scenario": "SC-2", "spec": DELTA}
+        for task, target in (("1.2", "b"), ("1.3", "a")):
+            self.record["links"].append({"task": task, "target": target, "test": TEST + "::test_example"})
+        return root, archive
+
+    def test_implementation_can_archive_approved_delta_unchanged(self):
+        root, archive = self.archive_planned_change()
+        self.assertEqual(self.verify_after_planning(), ("sample", 3, "implementation"))
         self.write(archive + DELTA.removeprefix(root), self.planning_files[DELTA] + "\n")
         with self.assertRaisesRegex(ValueError, "can only be archived unchanged"):
+            self.verify_after_planning()
+
+    def test_implementation_rejects_split_archive(self):
+        _, archive = self.archive_planned_change()
+        proposal = archive + "proposal.md"
+        other = Path(proposal.replace("2026-01-01", "2026-01-02"))
+        other.parent.mkdir(parents=True, exist_ok=True)
+        Path(proposal).rename(other)
+        self.record["scope"].remove(proposal)
+        self.record["scope"].append(other.as_posix())
+        with self.assertRaisesRegex(ValueError, "must share one archive directory"):
             self.verify_after_planning()
 
     def test_tooling_cannot_add_a_new_specification(self):
