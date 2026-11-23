@@ -40,6 +40,14 @@ class AcceptanceTests(unittest.TestCase):
                 a.Project(engine, Path("not-created"), "1" * 24, "positive", "image", [])
         open_file.assert_not_called()
 
+    def test_build_selects_engine_default_builder(self):
+        project = a.Project.__new__(a.Project)
+        project.engine = Mock()
+        project.compose = Mock()
+        project.build()
+        project.engine.ensure.assert_called_once()
+        project.compose.assert_called_once_with("build", "--builder", "default", "api", timeout=300)
+
     def test_bindings(self):
         observed = {"db": {"Bindings": {}, "Ports": {"5432/tcp": None}},
                     "api": {"Ports": {"8000/tcp": [{"HostIp": "127.0.0.1", "HostPort": "32768"}]}}}

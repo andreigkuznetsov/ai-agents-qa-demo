@@ -28,7 +28,7 @@ REQUIRED = {
 }
 COMMANDS = {
     "preflight": "git status/rev-parse; docker context inspect/info/version; docker compose version",
-    "build": "docker compose build api",
+    "build": "docker compose build --builder default api",
     "startup": "scripts/start-local.py; docker inspect; HTTP live/ready/healthz; psql",
     "stop": "docker container stop on verified api/db IDs; docker inspect",
     "persistence": "docker compose exec api (RunStore); scripts/start-local.py; psql; HTTP",
@@ -458,7 +458,7 @@ class Project:
 
     def build(self):
         self.engine.ensure()
-        self.compose("build", "api", timeout=300)
+        self.compose("build", "--builder", "default", "api", timeout=300)
 
     def start(self, *, failure=False, update=False):
         if self.started:
