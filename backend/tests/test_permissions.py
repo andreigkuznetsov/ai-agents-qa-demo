@@ -19,6 +19,51 @@ FORBIDDEN = [
     "SET ROLE qa_migrate",
 ]
 
+DOMAIN_FORBIDDEN = [
+    "SELECT * FROM qa.las_fixture_runs",
+    "SELECT * FROM qa.las_run_clients",
+    "INSERT INTO qa.las_orders SELECT * FROM qa.las_orders",
+    "UPDATE qa.las_orders SET status='ACTIVE'",
+    "DELETE FROM qa.las_orders",
+    "TRUNCATE qa.las_orders",
+    "INSERT INTO qa.las_delivery_dates SELECT * FROM qa.las_delivery_dates",
+    "UPDATE qa.las_delivery_dates SET delivery_date='2026-11-26'",
+    "DELETE FROM qa.las_delivery_dates",
+    "ALTER TABLE qa.las_orders ADD COLUMN api_denied integer",
+]
+
+
+def assert_las_privileges(project: Project) -> None:
+    with project.db("api") as api:
+        api.execute("SELECT * FROM qa.las_orders")
+        api.execute("SELECT * FROM qa.las_delivery_dates")
+        for sql in DOMAIN_FORBIDDEN:
+            with (
+                pytest.raises(psycopg.errors.InsufficientPrivilege) as denied,
+                api.transaction(),
+            ):
+                api.execute(sql)
+            assert denied.value.sqlstate == "42501", sql
+    with project.db("migrate") as migrator:
+        for sql in (
+            "CREATE SCHEMA migrant_denied",
+            "CREATE TABLE public.migrant_denied (id int)",
+            "CREATE TEMP TABLE migrant_denied (id int)",
+            "SET ROLE qa_api",
+        ):
+            with (
+                pytest.raises(psycopg.errors.InsufficientPrivilege) as denied,
+                migrator.transaction(),
+            ):
+                migrator.execute(sql)
+            assert denied.value.sqlstate == "42501", sql
+        with migrator.transaction(force_rollback=True):
+            migrator.execute("CREATE TABLE qa.test_migrator_owned (id int)")
+            migrator.execute("GRANT SELECT ON qa.test_migrator_owned TO qa_api")
+            assert migrator.execute(
+                "SELECT has_table_privilege('qa_api','qa.test_migrator_owned','SELECT')"
+            ).fetchone() == (True,)
+
 
 def assert_api_privileges(project: Project) -> None:
     with project.db("api") as api:
@@ -59,12 +104,14 @@ def assert_api_privileges(project: Project) -> None:
 
 def test_api_grants_after_upgrade(migrated: Project) -> None:
     assert_api_privileges(migrated)
+    assert_las_privileges(migrated)
 
 
 def test_api_grants_after_repeat(migrated: Project) -> None:
     migrated.compose("stop", "api")
     migrated.start("--update")
     assert_api_privileges(migrated)
+    assert_las_privileges(migrated)
 
 
 def test_api_cannot_elevate_or_mutate_schema(migrated: Project) -> None:

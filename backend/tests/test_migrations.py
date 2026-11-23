@@ -4,8 +4,136 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
-from conftest import Project
+from alembic import op
+from conftest import Project, prepare_kt2
+from fastapi.testclient import TestClient
 from psycopg import Error
+
+
+def kt3_catalog(project: Project) -> list[tuple[object, ...]]:
+    with project.db() as observer:
+        return observer.execute("""
+            SELECT c.relname, c.relkind, c.relowner::regrole::text, c.relacl::text,
+                   a.attname, format_type(a.atttypid, a.atttypmod), a.attacl::text
+            FROM pg_class c
+            LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+            WHERE c.relnamespace = 'qa'::regnamespace
+            ORDER BY c.relname, a.attnum
+        """).fetchall()
+
+
+def test_kt3_source_revision_matrix(
+    fresh: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fresh.compose("up", "-d", "--wait", "--wait-timeout", "40", "db")
+    prepare_kt2(fresh)
+    migration = importlib.import_module("app.migrate")
+    monkeypatch.setenv("QA_DB_HOST", fresh.host)
+    monkeypatch.setenv("QA_DB_PASSWORD", fresh.passwords["migrate"])
+    for change, restore in (
+        (
+            "UPDATE qa.alembic_version SET version_num='unknown'",
+            "UPDATE qa.alembic_version SET version_num='0001_runs'",
+        ),
+        (
+            "DELETE FROM qa.alembic_version",
+            "INSERT INTO qa.alembic_version VALUES ('0001_runs')",
+        ),
+        (
+            "INSERT INTO qa.alembic_version VALUES ('other_head')",
+            "DELETE FROM qa.alembic_version WHERE version_num='other_head'",
+        ),
+        (
+            "ALTER TABLE qa.runs ADD COLUMN test_drift int",
+            "ALTER TABLE qa.runs DROP COLUMN test_drift",
+        ),
+    ):
+        with fresh.db() as admin:
+            admin.execute(change)
+        before = kt3_catalog(fresh)
+        with fresh.db() as observer:
+            revision = observer.execute(
+                "SELECT * FROM qa.alembic_version ORDER BY version_num"
+            ).fetchall()
+        with pytest.raises(RuntimeError):
+            migration.upgrade()
+        assert kt3_catalog(fresh) == before
+        with fresh.db() as admin:
+            assert (
+                admin.execute(
+                    "SELECT * FROM qa.alembic_version ORDER BY version_num"
+                ).fetchall()
+                == revision
+            )
+            admin.execute(restore)
+
+
+def test_kt3_upgrade_rollback_and_recovery(
+    fresh: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fresh.compose("up", "-d", "--wait", "--wait-timeout", "40", "db")
+    migration = importlib.import_module("app.migrate")
+    monkeypatch.setenv("QA_DB_HOST", fresh.host)
+    monkeypatch.setenv("QA_DB_PASSWORD", fresh.passwords["migrate"])
+    create = op.create_table
+    grants = migration._execute_grants
+
+    def fail_ddl(name: str, *args: Any, **kwargs: Any) -> Any:
+        result = create(name, *args, **kwargs)
+        if name == "las_fixture_runs":
+            op.get_bind().exec_driver_sql("SELECT 1/0")
+        return result
+
+    def fail_grant(conn: Any) -> None:
+        grants(conn)
+        conn.exec_driver_sql("GRANT SELECT ON qa.las_orders TO nonexistent_test_role")
+
+    for source in (None, "0001_runs"):
+        row = None
+        if source:
+            prepare_kt2(fresh)
+            with fresh.db("api") as api:
+                row = api.execute(
+                    "INSERT INTO qa.runs (run_id,schema_version,status) "
+                    "VALUES (%s,1,'CREATED') RETURNING *",
+                    (uuid4(),),
+                ).fetchone()
+            with monkeypatch.context() as patch:
+                fresh.api_env(patch)
+                with TestClient(importlib.import_module("app.main").app) as client:
+                    assert client.get("/health/ready").status_code == 503
+        before = kt3_catalog(fresh)
+        for module, name, error, sqlstate in (
+            (op, "create_table", fail_ddl, "22012"),
+            (migration, "_execute_grants", fail_grant, "42704"),
+        ):
+            with monkeypatch.context() as patch:
+                patch.setattr(module, name, error)
+                with pytest.raises(Exception) as failure:
+                    migration.upgrade()
+            assert isinstance(failure.value.__cause__, Error)
+            assert failure.value.__cause__.sqlstate == sqlstate
+            assert kt3_catalog(fresh) == before
+            assert not fresh.compose("ps", "-q", "api")
+            if source:
+                with fresh.db("api") as api:
+                    assert api.execute("SELECT * FROM qa.runs").fetchall() == [row]
+                    assert api.execute(
+                        "SELECT version_num FROM qa.alembic_version"
+                    ).fetchone() == (source,)
+    volume = fresh.inspect("db")["Mounts"]
+    fresh.start("--update")
+    assert fresh.inspect("db")["Mounts"] == volume
+    assert fresh.health("/health/ready") == (200, b'{"status":"ok"}')
+    with fresh.db("api") as api:
+        assert api.execute("SELECT * FROM qa.runs").fetchall() == [row]
+        assert api.execute("SELECT version_num FROM qa.alembic_version").fetchone() == (
+            "0002_las_fixtures",
+        )
+        assert api.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema='qa' "
+            "AND table_name='runs' ORDER BY ordinal_position"
+        ).fetchall() == [("run_id",), ("schema_version",), ("created_at",), ("status",)]
 
 
 def test_clean_start(fresh: Project) -> None:
