@@ -95,7 +95,8 @@ class SDDTests(unittest.TestCase):
             TASKS: "# Tasks\n\n## 1. Example\n\n"
                    "- [ ] 1.1 First. После: нет. AC-1 · SC-1.\n"
                    "- [ ] 1.2 Follow-up. После: 1.1. AC-1 · SC-2.\n"
-                   "- [ ] 1.3 Regression AC-1 · SC-1–2. После: 1.1, 1.2.\n",
+                   "- [ ] 1.3 Regression AC-1 · SC-1–2. После: 1.1, 1.2.\n\n"
+                   "~~~markdown\n- [ ] Example checkbox\n~~~\n",
         }
         for path, text in self.planning_files.items():
             self.write(path, text)
@@ -226,7 +227,8 @@ class SDDTests(unittest.TestCase):
             ("После: 1.1.", "После: 1.9.", "Invalid dependency"),
             ("После: 1.1.", "После: 1.2.", "Invalid dependency"),
             ("После: 1.1.", "После: 1.3.", "Invalid dependency"),
-            ("После: 1.1.", "Depends on 1.1.", "Missing dependencies"),
+            ("После: 1.1.", "Depends on 1.1.", "Missing or repeated dependencies"),
+            ("После: 1.1.", "После: нет. После: 1.2.", "Missing or repeated dependencies"),
         ):
             with self.subTest(replacement=replacement):
                 self.write(TASKS, original.replace(token, replacement))
@@ -276,6 +278,18 @@ class SDDTests(unittest.TestCase):
         original = self.planning_files[TASKS]
         self.write(TASKS, original.replace("1.1 First. После: нет.", "1 First. После: 1."))
         with self.assertRaisesRegex(ValueError, "Invalid dependency"):
+            self.verify_planning()
+
+    def test_planning_rejects_hidden_tasks_and_issue_links(self):
+        self.planning_package()
+        original = self.planning_files[TASKS]
+        self.write(TASKS, "<!--\n" + original + "-->\n")
+        with self.assertRaisesRegex(ValueError, "trace every scenario"):
+            self.verify_planning()
+        self.write(TASKS, original)
+        self.write(self.decisions, "# Decisions\n<!--\n" + self.planning_files[self.decisions] + "-->\n")
+        self.record.pop("artifacts")
+        with self.assertRaisesRegex(ValueError, "decisions must be linked"):
             self.verify_planning()
 
     def test_planning_rejects_archived_change_id(self):
@@ -342,6 +356,15 @@ class SDDTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside the declared slice"):
             self.verify_after_planning()
 
+    def test_implementation_requires_completed_dependencies(self):
+        self.accept_planning_then_implementation()
+        self.write(TASKS, self.planning_files[TASKS].replace("[ ] 1.2", "[x] 1.2"))
+        self.record["tasks"] = ["1.2"]
+        self.record["targets"]["a"]["scenario"] = "SC-2"
+        self.record["links"][0]["task"] = "1.2"
+        with self.assertRaisesRegex(ValueError, "has incomplete dependencies"):
+            self.verify_after_planning()
+
     def archive_planned_change(self):
         self.accept_planning_then_implementation()
         root = "openspec/changes/sample/"
@@ -355,13 +378,13 @@ class SDDTests(unittest.TestCase):
         self.write(archive + "tasks.md", self.planning_files[TASKS].replace("[ ]", "[x]"))
         self.record["tasks"] = ["1.1", "1.2", "1.3"]
         self.record["targets"]["b"] = {"requirement": "AC-1", "scenario": "SC-2", "spec": DELTA}
-        for task, target in (("1.2", "b"), ("1.3", "a")):
+        for task, target in (("1.2", "b"), ("1.3", "a"), ("1.3", "b")):
             self.record["links"].append({"task": task, "target": target, "test": TEST + "::test_example"})
         return root, archive
 
     def test_implementation_can_archive_approved_delta_unchanged(self):
         root, archive = self.archive_planned_change()
-        self.assertEqual(self.verify_after_planning(), ("sample", 3, "implementation"))
+        self.assertEqual(self.verify_after_planning(), ("sample", 4, "implementation"))
         self.write(archive + DELTA.removeprefix(root), self.planning_files[DELTA] + "\n")
         with self.assertRaisesRegex(ValueError, "can only be archived unchanged"):
             self.verify_after_planning()
@@ -385,6 +408,32 @@ class SDDTests(unittest.TestCase):
         self.record["scope"].append(target)
         with self.assertRaisesRegex(ValueError, "immutable outside a complete archive"):
             self.verify_after_planning()
+
+    def test_implementation_requires_full_evidence_only_when_completing_task(self):
+        _, archive = self.archive_planned_change()
+        self.record["links"].pop()
+        with self.assertRaisesRegex(ValueError, "needs evidence for every approved AC/SC link"):
+            self.verify_after_planning()
+        # An active, still-open task may contribute evidence for part of its trace.
+        self.git("checkout", self.planning_base, "--", "openspec/changes/sample/")
+        for path in tuple(self.record["scope"]):
+            if path.startswith(archive):
+                Path(path).unlink()
+        self.record["scope"] = [MANIFEST]
+        self.assertEqual(self.verify_after_planning(), ("sample", 3, "implementation"))
+
+    def test_implementation_cannot_publish_changed_approved_requirement(self):
+        self.archive_planned_change()
+        published = "openspec/specs/example/spec.md"
+        self.record["scope"].append(published)
+        for target in self.record["targets"].values():
+            target["spec"] = published
+        original = self.planning_files[DELTA].replace("## ADDED Requirements", "## Requirements")
+        self.write(published, original.replace("The app SHALL respond.", "The app SHALL stop."))
+        with self.assertRaisesRegex(ValueError, "differ from approved planning delta"):
+            self.verify_after_planning()
+        self.write(published, original)
+        self.assertEqual(self.verify_after_planning(), ("sample", 4, "implementation"))
 
     def test_tooling_cannot_add_a_new_specification(self):
         self.add_delta()

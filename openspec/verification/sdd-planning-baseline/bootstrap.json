@@ -25,6 +25,10 @@
     {"task": "1.1", "test": "scripts/tests/test_check_sdd.py::SDDTests::test_implementation_rejects_wrong_issue_for_approved_plan"},
     {"task": "1.1", "test": "scripts/tests/test_check_sdd.py::SDDTests::test_implementation_rejects_split_archive"},
     {"task": "1.1", "test": "scripts/tests/test_check_sdd.py::SDDTests::test_implementation_cannot_archive_only_tasks"},
+    {"task": "1.1", "test": "scripts/tests/test_check_sdd.py::SDDTests::test_implementation_requires_full_evidence_only_when_completing_task"},
+    {"task": "1.1", "test": "scripts/tests/test_check_sdd.py::SDDTests::test_implementation_requires_completed_dependencies"},
+    {"task": "1.1", "test": "scripts/tests/test_check_sdd.py::SDDTests::test_implementation_cannot_publish_changed_approved_requirement"},
+    {"task": "1.1", "test": "scripts/tests/test_check_sdd.py::SDDTests::test_planning_rejects_hidden_tasks_and_issue_links"},
     {"task": "1.1", "test": "scripts/tests/test_check_sdd.py::SDDTests::test_planning_rejects_numeric_self_dependency"},
     {"task": "1.1", "test": "scripts/tests/test_check_sdd.py::SDDTests::test_planning_rejects_archived_change_id"},
     {"task": "1.1", "test": "scripts/tests/test_check_sdd.py::SDDTests::test_tooling_cannot_add_a_new_specification"}
