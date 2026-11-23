@@ -189,6 +189,8 @@ def test_kt3_order_authorization_and_identical_404(
             duplicates = [("Authorization", f"Bearer {token}")] * 2
             denied = client.get(path, headers=duplicates)
             assert (denied.status_code, denied.content) == (401, AUTH_ERROR)
+            denied = client.get(f"/orders/%00{suffix}")
+            assert (denied.status_code, denied.content) == (401, AUTH_ERROR)
             headers = {
                 **authorization(token),
                 "X-Run-Id": str(other_run),
@@ -212,6 +214,7 @@ def test_kt3_order_authorization_and_identical_404(
                 "foreign-client-only",
                 "foreign-run-only",
                 "order-001' OR '1'='1",
+                "%00",
             ):
                 response = client.request(
                     "GET",
@@ -238,7 +241,7 @@ def test_kt3_order_authorization_and_identical_404(
         for record in caplog.records
         if record.name == "app.logistics_orders"
     ]
-    assert len(messages) == 8
+    assert len(messages) == 10
     assert all(
         re.fullmatch(
             r"route=/orders/\{order_id\}(?:/delivery-options)? code=RESOURCE_NOT_FOUND correlation_id=[0-9a-f-]{36}",

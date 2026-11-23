@@ -46,6 +46,9 @@ class OrderStore:
         self.database = database
 
     async def read(self, context: LogisticsContext, order_id: str) -> Order | None:
+        # PostgreSQL text cannot contain NUL, including in bind parameters.
+        if "\x00" in order_id:
+            return None
         async with self.database.transaction() as connection:
             result = await connection.execute(
                 READ_ORDER,
@@ -63,6 +66,8 @@ class OrderStore:
     async def delivery_options(
         self, context: LogisticsContext, order_id: str
     ) -> DeliveryOptions | None:
+        if "\x00" in order_id:
+            return None
         async with self.database.transaction() as connection:
             result = await connection.execute(
                 READ_OPTIONS,
