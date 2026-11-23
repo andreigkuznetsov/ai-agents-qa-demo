@@ -142,12 +142,14 @@ OTHER_CONSTRAINTS = {
 
 def _validate_catalog(connection: Connection, tables: tuple[str, ...]) -> None:
     objects = connection.exec_driver_sql("""
-        SELECT relname, relkind, relowner = 'qa_migrate'::regrole
+        SELECT relname, relkind,
+               relowner = 'qa_migrate'::regrole AND relpersistence='p'
+               AND NOT relrowsecurity AND NOT relforcerowsecurity
         FROM pg_class WHERE relnamespace = 'qa'::regnamespace
     """)
     expected = {(table, "r", True) for table in tables}
     expected.update((PRIMARY_KEYS[table][0], "i", True) for table in tables)
-    if set(objects.tuples()) != expected:
+    if set(map(tuple, objects)) != expected:
         raise RuntimeError("unexpected PostgreSQL objects or ownership")
     columns = connection.exec_driver_sql("""
         SELECT c.relname, a.attname, format_type(a.atttypid,a.atttypmod), coll.collname,
@@ -161,7 +163,7 @@ def _validate_catalog(connection: Connection, tables: tuple[str, ...]) -> None:
     expected_columns = [
         (table, *col, True) for table in sorted(tables) for col in COLUMNS[table]
     ]
-    if list(columns.tuples()) != expected_columns:
+    if list(map(tuple, columns)) != expected_columns:
         raise RuntimeError("unexpected PostgreSQL table columns")
     constraints = connection.exec_driver_sql("""
         SELECT c.relname, k.conname, pg_get_constraintdef(k.oid), k.convalidated
@@ -175,8 +177,22 @@ def _validate_catalog(connection: Connection, tables: tuple[str, ...]) -> None:
         expected_constraints.update(
             (table, name, sql, True) for name, sql in OTHER_CONSTRAINTS.get(table, ())
         )
-    if set(constraints.tuples()) != expected_constraints:
+    if set(map(tuple, constraints)) != expected_constraints:
         raise RuntimeError("unexpected PostgreSQL table constraints")
+    extra_behavior = connection.exec_driver_sql("""
+        SELECT EXISTS (
+            SELECT FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+            WHERE c.relnamespace='qa'::regnamespace AND NOT t.tgisinternal
+            UNION ALL
+            SELECT FROM pg_rewrite r JOIN pg_class c ON c.oid=r.ev_class
+            WHERE c.relnamespace='qa'::regnamespace
+            UNION ALL
+            SELECT FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
+            WHERE c.relnamespace='qa'::regnamespace
+        )
+    """).scalar_one()
+    if extra_behavior:
+        raise RuntimeError("unexpected PostgreSQL triggers, rules or policies")
 
 
 def _check_source(connection: Connection, head: str) -> None:

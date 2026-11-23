@@ -47,6 +47,14 @@ def test_kt3_source_revision_matrix(
             "ALTER TABLE qa.runs ADD COLUMN test_drift int",
             "ALTER TABLE qa.runs DROP COLUMN test_drift",
         ),
+        (
+            "ALTER TABLE qa.runs ENABLE ROW LEVEL SECURITY",
+            "ALTER TABLE qa.runs DISABLE ROW LEVEL SECURITY",
+        ),
+        (
+            "CREATE RULE test_drift AS ON INSERT TO qa.runs DO INSTEAD NOTHING",
+            "DROP RULE test_drift ON qa.runs",
+        ),
     ):
         with fresh.db() as admin:
             admin.execute(change)
