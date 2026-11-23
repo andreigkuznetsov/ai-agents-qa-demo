@@ -26,11 +26,19 @@ SELECT
            AND NOT has_schema_privilege(oid, 'public', 'CREATE'))
          FROM pg_roles WHERE rolname IN ('qa_api', 'qa_migrate'))
     AND NOT EXISTS (
-        SELECT FROM pg_auth_members WHERE member IN ('qa_api'::regrole, 'qa_migrate'::regrole)
+        SELECT FROM pg_auth_members
+        WHERE member IN ('qa_api'::regrole, 'qa_migrate'::regrole)
+           OR roleid IN ('qa_api'::regrole, 'qa_migrate'::regrole)
     )
     AND NOT EXISTS (
         SELECT FROM pg_namespace n CROSS JOIN LATERAL aclexplode(n.nspacl) acl
         WHERE n.nspname='qa' AND acl.grantee NOT IN ('qa_api'::regrole, 'qa_migrate'::regrole)
+    )
+    AND NOT EXISTS (
+        SELECT FROM pg_database d
+        CROSS JOIN LATERAL aclexplode(coalesce(d.datacl, acldefault('d',d.datdba))) acl
+        WHERE d.datname=current_database() AND acl.grantee=0
+          AND acl.privilege_type IN ('CONNECT','CREATE','TEMPORARY')
     )
 """
 
@@ -182,17 +190,22 @@ def _validate_catalog(connection: Connection, tables: tuple[str, ...]) -> None:
     extra_behavior = connection.exec_driver_sql("""
         SELECT EXISTS (
             SELECT FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-            WHERE c.relnamespace='qa'::regnamespace AND NOT t.tgisinternal
+            WHERE c.relnamespace='qa'::regnamespace
+              AND (NOT t.tgisinternal OR t.tgenabled <> 'O')
             UNION ALL
             SELECT FROM pg_rewrite r JOIN pg_class c ON c.oid=r.ev_class
             WHERE c.relnamespace='qa'::regnamespace
             UNION ALL
             SELECT FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             WHERE c.relnamespace='qa'::regnamespace
+            UNION ALL
+            SELECT FROM pg_proc p WHERE p.pronamespace='qa'::regnamespace
         )
     """).scalar_one()
     if extra_behavior:
-        raise RuntimeError("unexpected PostgreSQL triggers, rules or policies")
+        raise RuntimeError(
+            "unexpected PostgreSQL triggers, rules, policies or functions"
+        )
 
 
 def _check_source(connection: Connection, head: str) -> None:

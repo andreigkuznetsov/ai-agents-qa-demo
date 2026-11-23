@@ -10,9 +10,10 @@ from fastapi.testclient import TestClient
 from psycopg import Error
 
 
-def kt3_catalog(project: Project) -> list[tuple[object, ...]]:
+def kt3_catalog(project: Project) -> tuple[object, ...]:
     with project.db() as observer:
-        return observer.execute("""
+        observer.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        objects = observer.execute("""
             SELECT c.relname, c.relkind, c.relowner::regrole::text, c.relacl::text,
                    a.attname, format_type(a.atttypid, a.atttypmod), a.attacl::text
             FROM pg_class c
@@ -20,6 +21,33 @@ def kt3_catalog(project: Project) -> list[tuple[object, ...]]:
             WHERE c.relnamespace = 'qa'::regnamespace
             ORDER BY c.relname, a.attnum
         """).fetchall()
+        constraints = observer.execute("""
+            SELECT c.relname, k.conname, pg_get_constraintdef(k.oid), k.convalidated
+            FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
+            WHERE c.relnamespace='qa'::regnamespace ORDER BY c.relname,k.conname
+        """).fetchall()
+        acl = observer.execute("""
+            SELECT datdba::regrole::text, datacl::text, nspowner::regrole::text, nspacl::text
+            FROM pg_database CROSS JOIN pg_namespace
+            WHERE datname=current_database() AND nspname='qa'
+        """).fetchone()
+        roles = observer.execute("""
+            SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolcanlogin
+            FROM pg_roles WHERE rolname IN ('qa_api','qa_migrate') ORDER BY rolname
+        """).fetchall()
+        memberships = observer.execute("""
+            SELECT roleid::regrole::text, member::regrole::text, admin_option, inherit_option, set_option
+            FROM pg_auth_members
+            WHERE roleid IN ('qa_api'::regrole,'qa_migrate'::regrole)
+               OR member IN ('qa_api'::regrole,'qa_migrate'::regrole)
+            ORDER BY roleid,member
+        """).fetchall()
+        triggers = observer.execute("""
+            SELECT c.relname, t.tgname, t.tgenabled
+            FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+            WHERE c.relnamespace='qa'::regnamespace ORDER BY c.relname,t.tgname
+        """).fetchall()
+        return objects, constraints, acl, roles, memberships, triggers
 
 
 def test_kt3_source_revision_matrix(
@@ -55,6 +83,18 @@ def test_kt3_source_revision_matrix(
             "CREATE RULE test_drift AS ON INSERT TO qa.runs DO INSTEAD NOTHING",
             "DROP RULE test_drift ON qa.runs",
         ),
+        (
+            "GRANT CONNECT ON DATABASE qa_demo TO PUBLIC",
+            "REVOKE CONNECT ON DATABASE qa_demo FROM PUBLIC",
+        ),
+        (
+            "CREATE ROLE kt3_test_role NOLOGIN; GRANT qa_migrate TO kt3_test_role",
+            "REVOKE qa_migrate FROM kt3_test_role; DROP ROLE kt3_test_role",
+        ),
+        (
+            "CREATE FUNCTION qa.kt3_test_function() RETURNS int LANGUAGE sql AS 'SELECT 1'",
+            "DROP FUNCTION qa.kt3_test_function()",
+        ),
     ):
         with fresh.db() as admin:
             admin.execute(change)
@@ -74,6 +114,22 @@ def test_kt3_source_revision_matrix(
                 == revision
             )
             admin.execute(restore)
+    migration.upgrade()
+    with fresh.db() as admin:
+        admin.execute("ALTER TABLE qa.las_orders DISABLE TRIGGER ALL")
+    disabled = kt3_catalog(fresh)
+    with pytest.raises(
+        RuntimeError,
+        match="unexpected PostgreSQL triggers, rules, policies or functions",
+    ):
+        migration.upgrade()
+    assert kt3_catalog(fresh) == disabled
+    with fresh.db() as admin:
+        assert admin.execute(
+            "SELECT version_num FROM qa.alembic_version"
+        ).fetchone() == ("0002_las_fixtures",)
+        admin.execute("ALTER TABLE qa.las_orders ENABLE TRIGGER ALL")
+    migration.upgrade()
 
 
 def test_kt3_upgrade_rollback_and_recovery(
