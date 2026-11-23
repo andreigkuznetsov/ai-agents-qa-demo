@@ -1,4 +1,5 @@
 import hashlib
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -27,10 +28,15 @@ def logistics_auth(
         values = request.headers.getlist("authorization")
         if len(values) != 1:
             raise Unauthenticated
-        parts = values[0].split()
-        if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].isascii():
+        scheme, delimiter, token = values[0].strip(" \t").partition(" ")
+        token = token.lstrip(" ")
+        if (
+            not delimiter
+            or scheme.lower() != "bearer"
+            or not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", token)
+        ):
             raise Unauthenticated
-        digest = hashlib.sha256(parts[1].encode("ascii")).hexdigest()
+        digest = hashlib.sha256(token.encode("ascii")).hexdigest()
         context = trusted.get(digest)
         if context is None:
             raise Unauthenticated
