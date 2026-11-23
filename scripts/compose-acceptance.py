@@ -1,7 +1,7 @@
 """Exercise the existing KT2 stack in disposable, explicitly scoped Compose projects."""
 
 import argparse
-from datetime import datetime
+from datetime import UTC, datetime
 import http.client
 import json
 import os
@@ -12,6 +12,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
+import traceback
 from time import monotonic, sleep
 from uuid import UUID
 
@@ -29,12 +30,12 @@ COMMANDS = {
     "preflight": "git status/rev-parse; docker context inspect/info/version; docker compose version",
     "build": "docker compose build api",
     "startup": "scripts/start-local.py; docker inspect; HTTP live/ready/healthz; psql",
-    "stop": "docker compose stop api db; docker inspect",
+    "stop": "docker container stop on verified api/db IDs; docker inspect",
     "persistence": "docker compose exec api (RunStore); scripts/start-local.py; psql; HTTP",
-    "database-loss": "docker compose stop db; HTTP live/ready/healthz",
+    "database-loss": "docker container stop on verified db ID; HTTP live/ready/healthz",
     "database-recovery": "docker compose up db; HTTP ready/healthz; docker inspect",
     "migration-failure": "docker compose up db; psql; scripts/start-local.py; docker inspect/logs",
-    "cleanup": "docker compose stop; docker inspect",
+    "cleanup": "docker container stop on verified project IDs; docker inspect",
 }
 CODES = {
     "timeout", "command-failed", "ownership", "context", "environment",
@@ -47,6 +48,8 @@ SHA = r"[0-9a-f]{40}"
 REV = r"[a-z0-9_]{1,32}"
 VERSION = r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+.][A-Za-z0-9.-]+)?"
 RUN_URL = r"https://github\.com/andreigkuznetsov/ai-agents-qa-demo/actions/runs/[0-9]+"
+TIMESTAMP = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?Z"
+CONTAINER = r"[a-f0-9]{64}"
 
 
 class Failure(Exception):
@@ -170,25 +173,35 @@ def cleanup(projects, first_error):
 
 def make_report(sha, mode):
     return {
-        "sha": sha, "platform": mode, "status": "NOT VERIFIED" if mode == "windows" else "FAIL",
+        "format": 1, "sha": sha, "platform": mode,
+        "status": "NOT VERIFIED" if mode == "windows" else "FAIL",
         "versions": {}, "run": "", "checks": {}, "projects": {},
     }
 
 
 # Evidence values come from selected fields and fixed enums. No opaque command output enters a report.
 FACTS = {
+    "preflight": {"checkout": r"clean", "engine": r"unix|desktop-linux",
+                  "version_source": r"docker|windows-file-version"},
     "startup": {"start_ms": r"[0-9]{1,5}", "revision": REV,
                 "migration_exit": r"0", "migrate_before_api": r"yes",
+                "migration_finished": TIMESTAMP, "api_started": TIMESTAMP,
+                "postgres": r"[0-9]+\.[0-9]+", "image": r"sha256:" + CONTAINER,
+                "volume_name": PROJECT + r"_postgres", "volume_created": TIMESTAMP,
                 "binding": r"127\.0\.0\.1:[0-9]{1,5}", "postgres_port": r"unpublished",
-                "live": r"200", "ready": r"200", "healthz": r"200"},
-    "stop": {"volume": r"preserved"},
+                "live": r"200 ok", "ready": r"200 ok", "healthz": r"200 ok",
+                "live_ms": r"[0-9]{1,4}", "ready_ms": r"[0-9]{1,4}", "healthz_ms": r"[0-9]{1,4}"},
+    "stop": {"volume": r"preserved", "api": r"stopped", "db": r"stopped"},
     "persistence": {"run_id": r"[a-f0-9-]{36}", "schema_version": r"1",
                     "created_at": r"[0-9T:.\-]+\+00:00", "status": r"CREATED",
                     "count": r"1", "start_ms": r"[0-9]{1,5}", "migration_exit": r"0",
-                    "revision": REV, "ready": r"200"},
-    "database-loss": {"live": r"200", "ready": r"503", "healthz": r"503",
+                    "revision": REV, "ready": r"200 ok", "volume_name": PROJECT + r"_postgres",
+                    "volume_created": TIMESTAMP, "image": r"sha256:" + CONTAINER},
+    "database-loss": {"live": r"200 ok", "ready": r"503 unavailable", "healthz": r"503 unavailable",
+                      "api_id": CONTAINER, "api_started": TIMESTAMP,
                       "ready_ms": r"[0-9]{1,4}", "healthz_ms": r"[0-9]{1,4}"},
-    "database-recovery": {"ready": r"200", "healthz": r"200", "api": r"same",
+    "database-recovery": {"ready": r"200 ok", "healthz": r"200 ok", "api": r"same",
+                          "api_id": CONTAINER, "api_started": TIMESTAMP,
                           "ready_ms": r"[0-9]{1,4}", "healthz_ms": r"[0-9]{1,4}"},
     "migration-failure": {"migration_exit": r"1", "diagnostic": r"migration-configuration",
                           "api": r"never-started", "tables": r"absent"},
@@ -198,6 +211,7 @@ FACTS = {
 
 def validate_report(report, expected_sha):
     require(isinstance(report, dict) and set(report) == set(make_report("", "linux")), "report")
+    require(type(report["format"]) is int and report["format"] == 1, "report")
     mode = report["platform"]
     require(isinstance(mode, str) and mode in REQUIRED and
             isinstance(report["sha"], str) and re.fullmatch(SHA, report["sha"])
@@ -218,8 +232,11 @@ def validate_report(report, expected_sha):
                 and re.fullmatch(PROJECT, project) and project.endswith("-" + purpose), "report")
     for name, check in checks.items():
         require(name in REQUIRED[mode] and isinstance(check, dict)
-                and set(check) <= {"result", "ms", "code", "facts"}
+                and set(check) <= {"result", "ms", "code", "facts", "commands", "expected", "exit"}
                 and check.get("result") in ("PASS", "FAIL") and type(check.get("ms")) is int
+                and check.get("commands") == COMMANDS[name] and check.get("expected") == "PASS"
+                and type(check.get("exit")) is int
+                and check["exit"] == int(check["result"] == "FAIL")
                 and 0 <= check["ms"] <= 900000, "report")
         if check["result"] == "FAIL":
             require(check.get("code") in CODES and "facts" not in check, "report")
@@ -237,6 +254,20 @@ def validate_report(report, expected_sha):
                 and required_versions <= set(versions)
                 and all(item["result"] == "PASS" for item in checks.values())
                 and (mode != "linux-ci" or report["run"]), "report")
+        first = checks["startup"]["facts"]
+        second = checks["persistence"]["facts"]
+        require(all(first[field] == second[field]
+                    for field in ("volume_name", "volume_created", "revision", "image"))
+                and first["volume_name"] == projects["positive"] + "_postgres"
+                and compose_time(first["migration_finished"]) <= compose_time(first["api_started"])
+                and all(int(entry["start_ms"]) <= 90000 for entry in (first, second)), "report")
+        if mode == "linux-ci":
+            require(all(checks["database-loss"]["facts"][field]
+                        == checks["database-recovery"]["facts"][field]
+                        for field in ("api_id", "api_started")), "report")
+        require(all(int(value) <= 3500 for entry in checks.values()
+                    for key, value in entry.get("facts", {}).items()
+                    if key in {"live_ms", "ready_ms", "healthz_ms"}), "report")
     elif status == "NOT VERIFIED":
         require(set(checks) <= {"preflight"}, "report")
     elif checks:
@@ -266,6 +297,16 @@ def version(value):
     match = re.fullmatch(r"v?(" + VERSION + r")", value.strip())
     require(match, "context")
     return match[1]
+
+
+def check_entry(name, started, error=None, facts=None):
+    entry = {"result": "FAIL" if error else "PASS", "ms": round((monotonic() - started) * 1000),
+             "commands": COMMANDS[name], "expected": "PASS", "exit": int(bool(error))}
+    if error:
+        entry["code"] = error.code
+    elif facts:
+        entry["facts"] = {key: str(value) for key, value in facts.items()}
+    return entry
 
 
 def checkout(sha, env):
@@ -429,7 +470,9 @@ class Project:
             sys.executable, str(ROOT / "scripts/start-local.py"), "--project", self.name,
             "--env-file", str(self.env_file),
         ]
-        result = invoke(args + (["--update"] if update else []), 90, self.engine.env)
+        # Let the launcher enforce its own 90-second deadline and terminate its
+        # child. The outer allowance covers Python process startup and exit.
+        result = invoke(args + (["--update"] if update else []), 94, self.engine.env)
         elapsed_ms = round((monotonic() - start) * 1000)
         changes = ("migrate", "api") if "db" in self.containers else ("db", "migrate", "api")
         observed = self.verify(changes, created=True)
@@ -448,7 +491,9 @@ class Project:
         observed = self.verify()
         targets = services or tuple(observed)
         require(all(service in observed for service in targets), "ownership")
-        self.compose("stop", "--timeout", "8", *targets, timeout=18)
+        running = [observed[service]["Id"] for service in targets if observed[service]["State"]["Running"]]
+        if running:
+            self.engine.run("container", "stop", "--time", "8", *running, timeout=18)
         remaining_resources = self.verify()
         require(all(not remaining_resources[service]["State"]["Running"]
                     for service in targets), "ownership")
@@ -469,12 +514,21 @@ class Project:
         require(re.fullmatch(REV, bundled) and actual == bundled, "revision")
         return actual
 
+    def storage_facts(self, observed):
+        volume = self.storage["volume"]
+        created = datetime.fromisoformat(volume["CreatedAt"]).astimezone(UTC)
+        return {
+            "volume_name": volume["Name"], "volume_created": created.isoformat().replace("+00:00", "Z"),
+            "image": observed["api"]["Image"],
+        }
+
 
 def binding(observed):
     db, api = observed["db"], observed["api"]
     require(not db["Bindings"] and not any((db["Ports"] or {}).values()), "network")
     ports = api["Ports"]
-    require(set(ports) == {"8000/tcp"} and len(ports["8000/tcp"]) == 1, "network")
+    require(isinstance(ports, dict) and set(ports) == {"8000/tcp"}
+            and isinstance(ports["8000/tcp"], list) and len(ports["8000/tcp"]) == 1, "network")
     bound = ports["8000/tcp"][0]
     require(bound["HostIp"] == "127.0.0.1" and 0 < int(bound["HostPort"]) <= 65535, "network")
     return int(bound["HostPort"])
@@ -534,21 +588,30 @@ def positive(project, check, mode):
         elapsed_ms, observed = project.start()
         port = binding(observed)
         revision = project.revision()
-        for path in ("/health/live", "/health/ready", "/healthz"):
-            http(port, path, 200)
+        live_ms = http(port, "/health/live", 200)
+        ready_ms = http(port, "/health/ready", 200)
+        healthz_ms = http(port, "/healthz", 200)
+        postgres = project.psql("SHOW server_version_num")
+        require(re.fullmatch(r"[0-9]{6}", postgres), "revision")
+        postgres = f"{int(postgres) // 10000}.{int(postgres) % 10000}"
         row = json.loads(project.api_python(RUN_STORE_CODE))
         persisted(row, row, 1)
         return {
             "start_ms": elapsed_ms, "revision": revision, "migration_exit": 0,
             "migrate_before_api": "yes", "binding": f"127.0.0.1:{port}",
-            "postgres_port": "unpublished", "live": 200, "ready": 200, "healthz": 200,
+            "migration_finished": observed["migrate"]["State"]["FinishedAt"],
+            "api_started": observed["api"]["State"]["StartedAt"],
+            "postgres": postgres, "postgres_port": "unpublished",
+            "live": "200 ok", "ready": "200 ok", "healthz": "200 ok",
+            "live_ms": live_ms, "ready_ms": ready_ms, "healthz_ms": healthz_ms,
+            **project.storage_facts(observed),
         }
 
     check("startup", startup)
 
     def stop():
         project.stop("api", "db")
-        return {"volume": "preserved"}
+        return {"volume": "preserved", "api": "stopped", "db": "stopped"}
 
     check("stop", stop)
 
@@ -564,7 +627,7 @@ def positive(project, check, mode):
         api_state = (observed["api"]["Id"], observed["api"]["State"]["StartedAt"])
         return dict(zip(("run_id", "schema_version", "created_at", "status"), row)) | {
             "count": count, "start_ms": elapsed_ms, "migration_exit": 0, "revision": revision,
-            "ready": 200,
+            "ready": "200 ok", **project.storage_facts(observed),
         }
 
     check("persistence", persistence)
@@ -574,7 +637,8 @@ def positive(project, check, mode):
     def loss():
         project.stop("db")
         http(port, "/health/live", 200)
-        return {"live": 200, "ready": 503, "healthz": 503,
+        return {"live": "200 ok", "ready": "503 unavailable", "healthz": "503 unavailable",
+                "api_id": api_state[0], "api_started": api_state[1],
                 "ready_ms": http(port, "/health/ready", 503),
                 "healthz_ms": http(port, "/healthz", 503)}
 
@@ -587,7 +651,8 @@ def positive(project, check, mode):
         healthz_ms = http(port, "/healthz", 200, deadline=deadline)
         api = project.verify()["api"]
         require((api["Id"], api["State"]["StartedAt"]) == api_state, "ownership")
-        return {"ready": 200, "healthz": 200, "api": "same",
+        return {"ready": "200 ok", "healthz": "200 ok", "api": "same",
+                "api_id": api["Id"], "api_started": api["State"]["StartedAt"],
                 "ready_ms": ready_ms, "healthz_ms": healthz_ms}
 
     check("database-loss", loss)
@@ -632,13 +697,9 @@ def perform(mode, sha, context, report_dir):
         try:
             facts = action()
         except Failure as error:
-            report["checks"][name] = {"result": "FAIL", "ms": round((monotonic() - started) * 1000),
-                                      "code": error.code}
+            report["checks"][name] = check_entry(name, started, error)
             raise
-        entry = {"result": "PASS", "ms": round((monotonic() - started) * 1000)}
-        if facts:
-            entry["facts"] = {key: str(value) for key, value in facts.items()}
-        report["checks"][name] = entry
+        report["checks"][name] = check_entry(name, started, facts=facts)
 
     def preflight():
         require((mode == "windows" and sys.platform == "win32")
@@ -658,6 +719,8 @@ def perform(mode, sha, context, report_dir):
     def select_engine():
         nonlocal engine
         engine = preflight()
+        return {"checkout": "clean", "engine": "desktop-linux" if mode == "windows" else "unix",
+                "version_source": "windows-file-version" if mode == "windows" else "docker"}
 
     error = None
     with tempfile.TemporaryDirectory(prefix="kt2-compose-") as tmp:
@@ -681,14 +744,19 @@ def perform(mode, sha, context, report_dir):
             error = problem
         except KeyboardInterrupt:
             error = Failure("interrupted")
-        except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError):
+        except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError) as exception:
+            locations = [
+                str(frame.lineno) for frame in traceback.extract_tb(exception.__traceback__)
+                if Path(frame.filename) == Path(__file__)
+            ]
+            print("Driver error:", type(exception).__name__, "at driver lines", ", ".join(locations))
             error = Failure("unexpected")
 
         if error:
             # A failure between measured steps still invalidates the run.
             report["checks"][phase] = report["checks"].get(phase, {})
             if report["checks"][phase].get("result") != "FAIL":
-                report["checks"][phase] = {"result": "FAIL", "ms": 0, "code": error.code}
+                report["checks"][phase] = check_entry(phase, monotonic(), error)
 
         def stop_projects():
             cleanup_error = cleanup(projects, None)

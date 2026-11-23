@@ -105,20 +105,27 @@ class AcceptanceTests(unittest.TestCase):
         report["projects"] = {p: f"kt2caf-{'1' * 24}-{p}" for p in ("positive", "negative")}
         report["checks"] = dict.fromkeys(a.REQUIRED["linux-ci"], {})
         for check in report["checks"]:
-            report["checks"][check] = {"result": "PASS", "ms": 1}
+            report["checks"][check] = a.check_entry(check, a.monotonic())
+        time = "2026-11-23T00:00:10Z"
+        volume = dict(volume_name=report["projects"]["positive"] + "_postgres",
+                      volume_created=time, image="sha256:" + "a" * 64)
+        api = dict(api_id="b" * 64, api_started=time)
         facts = {
+            "preflight": dict(checkout="clean", engine="unix", version_source="docker"),
             "startup": dict(start_ms="1000", revision="0001_runs", migration_exit="0",
                             migrate_before_api="yes", binding="127.0.0.1:12345",
-                            postgres_port="unpublished", live="200", ready="200", healthz="200"),
-            "stop": dict(volume="preserved"),
+                            migration_finished=time, api_started=time, postgres="18.7",
+                            postgres_port="unpublished", live="200 ok", ready="200 ok",
+                            healthz="200 ok", live_ms="5", ready_ms="5", healthz_ms="5", **volume),
+            "stop": dict(volume="preserved", api="stopped", db="stopped"),
             "persistence": dict(run_id="60c474a3-1332-43ce-a044-741f28e317ff",
                                 schema_version="1", created_at="2026-11-23T00:00:10+00:00",
                                 status="CREATED", count="1", start_ms="1000", migration_exit="0",
-                                revision="0001_runs", ready="200"),
-            "database-loss": dict(live="200", ready="503", healthz="503", ready_ms="100",
-                                  healthz_ms="20"),
-            "database-recovery": dict(ready="200", healthz="200", api="same", ready_ms="12",
-                                      healthz_ms="10"),
+                                revision="0001_runs", ready="200 ok", **volume),
+            "database-loss": dict(live="200 ok", ready="503 unavailable",
+                                  healthz="503 unavailable", ready_ms="100", healthz_ms="20", **api),
+            "database-recovery": dict(ready="200 ok", healthz="200 ok", api="same", ready_ms="12",
+                                      healthz_ms="10", **api),
             "migration-failure": dict(migration_exit="1", diagnostic="migration-configuration",
                                       api="never-started", tables="absent"),
             "cleanup": dict(volumes="preserved"),
@@ -132,6 +139,9 @@ class AcceptanceTests(unittest.TestCase):
             lambda r: r["versions"].update({"engine": "postgresql://test:secret@db"}),
             lambda r: r["checks"].pop("migration-failure"),
             lambda r: r.update({"run": ""}),
+            lambda r: r["checks"]["persistence"]["facts"].update(volume_created="2026-11-23T00:00:11Z"),
+            lambda r: r["checks"]["database-recovery"]["facts"].update(api_id="c" * 64),
+            lambda r: r["checks"]["database-recovery"]["facts"].update(ready_ms="3501"),
         ):
             invalid = copy.deepcopy(report)
             mutation(invalid)
