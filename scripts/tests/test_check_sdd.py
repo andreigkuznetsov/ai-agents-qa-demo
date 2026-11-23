@@ -293,7 +293,7 @@ class SDDTests(unittest.TestCase):
         self.accept_planning_then_implementation()
         self.record["scope"].append(DELTA)
         self.write(DELTA, self.planning_files[DELTA].replace("respond.", "stop."))
-        with self.assertRaisesRegex(ValueError, "Approved planning artifact is immutable"):
+        with self.assertRaisesRegex(ValueError, "Approved planning artifacts are immutable"):
             self.verify_after_planning()
 
     def test_implementation_cannot_change_approved_proposal_or_decisions(self):
