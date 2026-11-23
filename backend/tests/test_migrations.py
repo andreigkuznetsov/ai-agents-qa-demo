@@ -8,6 +8,7 @@ from alembic import op
 from conftest import Project, prepare_kt2
 from fastapi.testclient import TestClient
 from psycopg import Error
+from test_compose_local import postgres_volume
 
 
 def kt3_catalog(project: Project) -> tuple[object, ...]:
@@ -185,9 +186,9 @@ def test_kt3_upgrade_rollback_and_recovery(
                     assert api.execute(
                         "SELECT version_num FROM qa.alembic_version"
                     ).fetchone() == (source,)
-    volume = fresh.inspect("db")["Mounts"]
+    volume = postgres_volume(fresh)
     fresh.start("--update")
-    assert fresh.inspect("db")["Mounts"] == volume
+    assert postgres_volume(fresh) == volume
     assert fresh.health("/health/ready") == (200, b'{"status":"ok"}')
     with fresh.db("api") as api:
         assert api.execute("SELECT * FROM qa.runs").fetchall() == [row]
