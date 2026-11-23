@@ -8,6 +8,7 @@
     "backend/app/main.py",
     "backend/app/order_store.py",
     "backend/tests/test_kt3_order_reads.py",
+    "openspec/changes/kt3-logistics-api-simulator/tasks.md",
     "openspec/verification/kt3-logistics-api-simulator/pr2.json"
   ],
   "tasks": [
