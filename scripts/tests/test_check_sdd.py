@@ -153,11 +153,17 @@ class SDDTests(unittest.TestCase):
     def test_planning_rejects_existing_spec_archive_delete_and_rename(self):
         active = "openspec/specs/example/spec.md"
         archive = "openspec/changes/archive/2026-01-01-other/specs/example/spec.md"
+        Path(TASKS).unlink()
         for path in (active, archive):
             self.write(path, "existing\n")
         self.base = self.commit()
         self.planning_package()
-        for path, operation in ((active, "edit"), (archive, "edit"), (active, "delete"), (TEST, "rename")):
+        for path, operation, error in (
+            (active, "edit", "exactly one new complete package"),
+            (archive, "edit", "Existing archived artifacts are immutable"),
+            (active, "delete", "exactly one new complete package"),
+            (TEST, "rename", "exactly one new complete package"),
+        ):
             with self.subTest(path=path, operation=operation):
                 target = Path(path)
                 original = target.read_bytes()
@@ -170,7 +176,7 @@ class SDDTests(unittest.TestCase):
                     target.rename(other)
                     self.record["scope"].append(other.as_posix())
                 self.record["scope"].append(path)
-                with self.assertRaises(ValueError):
+                with self.assertRaisesRegex(ValueError, error):
                     self.verify_planning()
                 self.record["scope"].remove(path)
                 if operation == "rename":
@@ -273,6 +279,7 @@ class SDDTests(unittest.TestCase):
             self.verify_planning()
 
     def test_planning_rejects_archived_change_id(self):
+        Path(TASKS).unlink()
         self.write("openspec/changes/archive/2026-01-01-sample/tasks.md", "# Archived\n")
         self.base = self.commit()
         self.planning_package()
@@ -368,6 +375,15 @@ class SDDTests(unittest.TestCase):
         self.record["scope"].remove(proposal)
         self.record["scope"].append(other.as_posix())
         with self.assertRaisesRegex(ValueError, "must share one archive directory"):
+            self.verify_after_planning()
+
+    def test_implementation_cannot_archive_only_tasks(self):
+        self.accept_planning_then_implementation()
+        target = "openspec/changes/archive/2026-01-01-sample/tasks.md"
+        Path(TASKS).unlink()
+        self.write(target, self.planning_files[TASKS].replace("[ ]", "[x]"))
+        self.record["scope"].append(target)
+        with self.assertRaisesRegex(ValueError, "immutable outside a complete archive"):
             self.verify_after_planning()
 
     def test_tooling_cannot_add_a_new_specification(self):

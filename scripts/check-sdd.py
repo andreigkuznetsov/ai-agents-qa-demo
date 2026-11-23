@@ -245,17 +245,20 @@ def protect_planning_baselines(base, head, changed, old_files, files, kind):
         require(task_path not in changed or kind == "implementation",
                 "Only an implementation manifest can update approved planning tasks")
         affected = {path for path in changed if path.startswith(root) and path != task_path}
-        if not (affected or decisions):
+        archive_roots = {p.split("/", 4)[3] for p in changed & files if re.fullmatch(
+            rf"openspec/changes/archive/\d{{4}}-\d{{2}}-\d{{2}}-{re.escape(change_id)}/.+", p)}
+        archiving = bool(archive_roots) or task_path in old_files - files
+        if not (affected or decisions or archiving):
             continue
         record = json.loads(git("show", f"{base}:{manifest}"), object_pairs_hook=unique_object)
         require(record["decisions"] not in decisions, "Approved business decisions are immutable")
         require(affected <= record["artifacts"].keys(), "Cannot add an artifact to an accepted planning baseline")
-        if not affected:
+        if not (affected or archiving):
             continue
         require(kind == "implementation" and not any(p.startswith(root) for p in files),
                 "Approved planning artifacts are immutable outside a complete archive")
-        archive_roots = {p.split("/", 4)[3] for p in changed & files if re.fullmatch(
-            rf"openspec/changes/archive/\d{{4}}-\d{{2}}-\d{{2}}-{re.escape(change_id)}/.+", p)}
+        frozen = {path for path in record["artifacts"] if path.startswith(root) and path != task_path}
+        require(affected == frozen, "Archive must move every approved planning artifact")
         require(len(archive_roots) == 1, "Approved planning artifacts must share one archive directory")
         archive_root = f"openspec/changes/archive/{archive_roots.pop()}/"
         require(archive_root + "tasks.md" in changed & files, "Approved tasks must move to the same archive")
