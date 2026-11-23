@@ -175,6 +175,14 @@ class AcceptanceTests(unittest.TestCase):
         with self.assertRaises(a.Failure):
             a.validate_report(report, sha)
 
+    def test_local_linux_success_is_not_acceptance(self):
+        self.assertEqual(a.successful_status("linux-local"), "SMOKE PASS")
+        sha = "a" * 40
+        report = a.make_report(sha, "linux-local")
+        report["status"] = "PASS"
+        with self.assertRaises(a.Failure):
+            a.validate_report(report, sha)
+
     def test_cleanup_preserves_first_failure(self):
         failure = a.Failure("command-failed")
         project = Mock()

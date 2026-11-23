@@ -31,7 +31,8 @@ python3 scripts/compose-acceptance.py --linux --context default \
 В GitHub Actions выполняется тот же драйвер из чистого checkout с
 `--linux-ci`. На выделенном runner он дополнительно проверяет потерю
 PostgreSQL, восстановление readiness и отказ миграции в отдельном новом
-Compose-проекте. Локальный режим запускает позитивные сценарии.
+Compose-проекте. Локальный режим запускает позитивные сценарии и при успехе
+выдаёт `SMOKE PASS`. Linux-приёмку подтверждает отчёт `PASS` из GitHub Actions.
 
 ## Windows
 

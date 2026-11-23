@@ -24,7 +24,7 @@ REQUIRED = {
         "database-loss", "database-recovery", "migration-failure", "cleanup",
     ),
     "windows": ("preflight", "build", "startup", "stop", "persistence", "cleanup"),
-    "linux": ("preflight", "build", "startup", "stop", "persistence", "cleanup"),
+    "linux-local": ("preflight", "build", "startup", "stop", "persistence", "cleanup"),
 }
 COMMANDS = {
     "preflight": "git status/rev-parse; docker context inspect/info/version; docker compose version",
@@ -180,6 +180,10 @@ def make_report(sha, mode):
     }
 
 
+def successful_status(mode):
+    return "SMOKE PASS" if mode == "linux-local" else "PASS"
+
+
 # Evidence values come from selected fields and fixed enums. No opaque command output enters a report.
 FACTS = {
     "preflight": {"checkout": r"clean", "engine": r"unix|desktop-linux",
@@ -211,14 +215,14 @@ FACTS = {
 
 
 def validate_report(report, expected_sha):
-    require(isinstance(report, dict) and set(report) == set(make_report("", "linux")), "report")
+    require(isinstance(report, dict) and set(report) == set(make_report("", "linux-local")), "report")
     require(type(report["format"]) is int and report["format"] == 1, "report")
     mode = report["platform"]
     require(isinstance(mode, str) and mode in REQUIRED and
             isinstance(report["sha"], str) and re.fullmatch(SHA, report["sha"])
             and report["sha"] == expected_sha, "report")
     status = report["status"]
-    require(status in ("PASS", "FAIL", "NOT VERIFIED") and
+    require(status in (successful_status(mode), "FAIL", "NOT VERIFIED") and
             (status != "NOT VERIFIED" or mode == "windows"), "report")
     versions, checks, projects = (report[key] for key in ("versions", "checks", "projects"))
     require(all(isinstance(value, dict) for value in (versions, checks, projects)), "report")
@@ -248,7 +252,7 @@ def validate_report(report, expected_sha):
                     "report")
             for key, pattern in expected.items():
                 require(isinstance(facts[key], str) and re.fullmatch(pattern, facts[key]), "report")
-    if status == "PASS":
+    if status == successful_status(mode):
         expected_projects = {"positive", "negative"} if mode == "linux-ci" else {"positive"}
         required_versions = set(VERSION_KEYS if mode == "windows" else VERSION_KEYS[:-1])
         require(set(checks) == set(REQUIRED[mode]) and set(projects) == expected_projects
@@ -771,14 +775,14 @@ def perform(mode, sha, context, report_dir):
             except Failure as problem:
                 error = error or problem
     if error is None:
-        report["status"] = "PASS"
+        report["status"] = successful_status(mode)
     elif mode != "windows" or engine is not None:
         report["status"] = "FAIL"
     write_report(report_dir, report, sensitive)
     print("Compose acceptance:", report["status"])
     if error:
         print("Diagnostic:", error.code)
-    return 0 if report["status"] == "PASS" else 1
+    return 0 if error is None else 1
 
 
 def main():
@@ -807,7 +811,7 @@ def main():
             require(args.report_dir.resolve().is_relative_to(allowed.resolve()), "report")
         report_dir = args.report_dir.resolve()
         report_dir.mkdir(parents=True, exist_ok=False)
-        return perform("windows" if args.windows else "linux-ci" if args.linux_ci else "linux",
+        return perform("windows" if args.windows else "linux-ci" if args.linux_ci else "linux-local",
                        args.expected_sha, args.context, report_dir)
     except (OSError, TypeError, ValueError, Failure) as error:
         print("Acceptance error:", error.code if isinstance(error, Failure) else "report")
