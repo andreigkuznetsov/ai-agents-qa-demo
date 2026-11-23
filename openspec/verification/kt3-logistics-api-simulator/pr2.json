@@ -1,0 +1,102 @@
+{
+  "change_id": "kt3-logistics-api-simulator",
+  "issue": 14,
+  "kind": "implementation",
+  "scope": [
+    "backend/app/logistics_auth.py",
+    "backend/app/logistics_orders.py",
+    "backend/app/main.py",
+    "backend/app/order_store.py",
+    "backend/tests/test_kt3_order_reads.py",
+    "openspec/verification/kt3-logistics-api-simulator/pr2.json"
+  ],
+  "tasks": [
+    "2.1",
+    "2.2",
+    "2.3"
+  ],
+  "targets": {
+    "sc004": {
+      "requirement": "AC-LAS-002",
+      "scenario": "SC-LAS-004",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc005": {
+      "requirement": "AC-LAS-002",
+      "scenario": "SC-LAS-005",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc006": {
+      "requirement": "AC-LAS-003",
+      "scenario": "SC-LAS-006",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc007": {
+      "requirement": "AC-LAS-003",
+      "scenario": "SC-LAS-007",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc008": {
+      "requirement": "AC-LAS-003",
+      "scenario": "SC-LAS-008",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    }
+  },
+  "links": [
+    {
+      "task": "2.1",
+      "target": "sc004",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "2.1",
+      "target": "sc006",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "2.1",
+      "target": "sc008",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "2.2",
+      "target": "sc006",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_options_single_snapshot_and_revision_guard"
+    },
+    {
+      "task": "2.2",
+      "target": "sc007",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "2.2",
+      "target": "sc008",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "2.3",
+      "target": "sc004",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "2.3",
+      "target": "sc005",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "2.3",
+      "target": "sc006",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "2.3",
+      "target": "sc007",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "2.3",
+      "target": "sc008",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    }
+  ]
+}

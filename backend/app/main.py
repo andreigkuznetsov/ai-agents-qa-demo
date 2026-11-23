@@ -1,11 +1,18 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.database import Database, Settings
+from app.logistics_auth import (
+    LogisticsContext,
+    Unauthenticated,
+    unauthenticated_response,
+)
+from app.logistics_orders import order_router
+from app.order_store import OrderStore
 from app.readiness import Readiness
 
 
@@ -14,6 +21,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     database = Database(Settings.from_env())
     readiness = Readiness(database)
     app.state.readiness = readiness
+    app.state.order_store = OrderStore(database)
     try:
         yield
     finally:
@@ -21,16 +29,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await database.close()
 
 
-app = FastAPI(
-    title="AI Agents QA Demo",
-    openapi_url=None,
-    docs_url=None,
-    redoc_url=None,
-    lifespan=lifespan,
-)
+health_router = APIRouter()
 
 
-@app.get("/health/live")
+@health_router.get("/health/live")
 async def live() -> dict[str, str]:
     return {"status": "ok"}
 
@@ -40,8 +42,8 @@ async def wait_for_disconnect(request: Request) -> None:
         pass
 
 
-@app.get("/health/ready")
-@app.get("/healthz")
+@health_router.get("/health/ready")
+@health_router.get("/healthz")
 async def ready(request: Request) -> JSONResponse:
     readiness: Readiness = request.app.state.readiness
     deadline = (
@@ -62,3 +64,22 @@ async def ready(request: Request) -> JSONResponse:
             if not task.done():
                 task.cancel()
         await asyncio.gather(check, disconnect, return_exceptions=True)
+
+
+def create_app(
+    context_by_digest: Mapping[str, LogisticsContext] | None = None,
+) -> FastAPI:
+    application = FastAPI(
+        title="AI Agents QA Demo",
+        openapi_url=None,
+        docs_url=None,
+        redoc_url=None,
+        lifespan=lifespan,
+    )
+    application.include_router(health_router)
+    application.include_router(order_router(context_by_digest or {}))
+    application.add_exception_handler(Unauthenticated, unauthenticated_response)
+    return application
+
+
+app = create_app()
