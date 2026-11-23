@@ -1,0 +1,26 @@
+{
+  "change_id": "kt3-logistics-api-simulator",
+  "issue": 14,
+  "kind": "planning",
+  "scope": [
+    "docs/development/kt3-business-decisions.md",
+    "openspec/changes/kt3-logistics-api-simulator/.openspec.yaml",
+    "openspec/changes/kt3-logistics-api-simulator/design.md",
+    "openspec/changes/kt3-logistics-api-simulator/proposal.md",
+    "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md",
+    "openspec/changes/kt3-logistics-api-simulator/tasks.md",
+    "openspec/verification/kt3-logistics-api-simulator/planning.json"
+  ],
+  "decisions": "docs/development/kt3-business-decisions.md",
+  "artifacts": {
+    "docs/development/kt3-business-decisions.md": "2d10b08727b7f7ea5d8e2895672707cbd75156c3de6496bc86f417345a3dcf56",
+    "openspec/changes/kt3-logistics-api-simulator/.openspec.yaml": "01c3365f21ad2129d7e1db5577bc59c382883cdcbfece60900a8ac86293e3398",
+    "openspec/changes/kt3-logistics-api-simulator/proposal.md": "0c464399da8d412e4e47ad421dea272b20c163389fa4e0bdf26b3dc21b130a7e",
+    "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md": "ad213c407f7d160fb5cba3fb1e46500e400523ce48c904e6678a942467717969",
+    "openspec/changes/kt3-logistics-api-simulator/design.md": "8c90195d0dc4ae788b9b3bb65769e9660c0d92a9c2b8e58572c171c33c4309bd",
+    "openspec/changes/kt3-logistics-api-simulator/tasks.md": "facd7595abba9ea2f4a6b9443f3711f07174bb0f87109950a06c0a58ab95bf1f"
+  },
+  "tasks": [],
+  "targets": {},
+  "links": []
+}
