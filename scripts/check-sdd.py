@@ -17,7 +17,9 @@ MANIFEST = re.compile(r"openspec/verification/([a-z0-9-]+)/[a-z0-9-]+\.json")
 PLANNING = re.compile(r"openspec/verification/([a-z0-9-]+)/planning\.json")
 DECISIONS = re.compile(r"docs/development/[a-z0-9-]+-business-decisions\.md")
 SPEC = re.compile(r"openspec/(?:specs|changes/(?!archive/)[^/]+/specs)/(?:[^/]+/)+spec\.md")
-TASK_LINE = re.compile(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]*\[[ \t]*([^\]\s]?)[ \t]*\](?![([])[ \t]*(.*)$", re.M)
+TASK_MARKER = r"(?:[-*+]|\d{1,9}[.)])[ \t]*\[[ \t]*([^\]\s]?)[ \t]*\](?![([])[ \t]*(.*)$"
+TASK_LINE = re.compile(r"^[ \t]*" + TASK_MARKER, re.M)
+PLAN_TASK_LINE = re.compile(r"^ {0,3}" + TASK_MARKER, re.M)
 TASK_ID = re.compile(r"^([0-9]+(?:\.[0-9]+)*)[ \t]+")
 SECTION = re.compile(r"^##[ \t]+([^\n]+)", re.M)
 REQUIREMENT = re.compile(r"^###[ \t]*Requirement:[ \t]*(\S+)[^\n]*", re.M | re.I)
@@ -87,7 +89,7 @@ def markdown_lines(text):
             yield line
 
 
-def spec_blocks(text):
+def spec_blocks(text, *, for_publication=False):
     text = text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
     masked = "".join(markdown_lines(text))
     headings = list(REQUIREMENT.finditer(masked))
@@ -127,7 +129,12 @@ def spec_blocks(text):
             require(previous_id not in seen, f"Duplicate rename of {previous_id}")
             seen.add(previous_id)
             block, scenarios = blocks.get(previous_id, ("", set()))
-            blocks[previous_id] = (block + f"\nFROM: {old}\nTO: {new}", scenarios)
+            if for_publication:
+                _, newline, body = block.partition("\n")
+                block = f"### Requirement: {new}" + newline + body
+            else:
+                block += f"\nFROM: {old}\nTO: {new}"
+            blocks[previous_id] = (block, scenarios)
     return blocks
 
 
@@ -166,7 +173,7 @@ def check_planning_trace(task_text, specs, *, allow_completed=False):
 
     tasks = {}
     covered = set()
-    for marker, row in TASK_LINE.findall(planning_markdown(task_text)):
+    for marker, row in PLAN_TASK_LINE.findall(planning_markdown(task_text)):
         task = TASK_ID.match(row)
         require(task and (not marker or allow_completed and marker.lower() == "x") and task[1] not in tasks,
                 "Planning requires unique, unchecked, numbered tasks")
@@ -299,7 +306,7 @@ def accepted_slice_trace(read, base, change_id, issue, manifest, old_files, task
     for source, text in specs.items():
         published = synced_spec_path(change_id, source)
         if published in spec_paths:
-            expected = spec_blocks(text)
+            expected = spec_blocks(text, for_publication=True)
             actual = spec_blocks(read(published))
             require(all(actual.get(requirement) == block for requirement, block in expected.items()),
                     f"Published requirements differ from approved planning delta: {published}")
@@ -383,9 +390,7 @@ def check(base, head, issue, kt1=KT1):
         task_text = read(task_paths[0]).lstrip("\ufeff").replace("\r\n", "\n")
         planning_manifest = f"openspec/verification/{change_id}/planning.json"
         has_plan = planning_manifest in old_files
-        if has_plan:
-            task_text = planning_markdown(task_text)
-        rows = TASK_LINE.findall(task_text)
+        rows = PLAN_TASK_LINE.findall(planning_markdown(task_text)) if has_plan else TASK_LINE.findall(task_text)
         declared = [match[1] for _, text in rows if (match := TASK_ID.match(text))]
         require(len(rows) == len(declared) == len(set(declared)) and tasks <= set(declared),
                 "Slice tasks must refer to unique task IDs in tasks.md")

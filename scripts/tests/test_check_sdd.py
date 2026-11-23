@@ -117,8 +117,11 @@ class SDDTests(unittest.TestCase):
     def verify_planning(self):
         return sdd.check(self.base, self.commit_planning(), 5, kt1=self.base)
 
-    def accept_planning_then_implementation(self):
+    def accept_planning_then_implementation(self, *, delta=None):
         self.planning_package()
+        if delta is not None:
+            self.planning_files[DELTA] = delta
+            self.write(DELTA, delta)
         self.planning_base = self.commit_planning()
         self.write(TASKS, self.planning_files[TASKS].replace("[ ] 1.1", "[x] 1.1"))
         self.record = {
@@ -286,6 +289,12 @@ class SDDTests(unittest.TestCase):
         self.write(TASKS, "<!--\n" + original + "-->\n")
         with self.assertRaisesRegex(ValueError, "trace every scenario"):
             self.verify_planning()
+        indented = "\n".join("    " + line if line.startswith("- [ ]") else line
+                             for line in original.splitlines()) + "\n"
+        self.write(TASKS, indented)
+        self.record.pop("artifacts")
+        with self.assertRaisesRegex(ValueError, "trace every scenario"):
+            self.verify_planning()
         self.write(TASKS, original)
         self.write(self.decisions, "# Decisions\n<!--\n" + self.planning_files[self.decisions] + "-->\n")
         self.record.pop("artifacts")
@@ -365,8 +374,8 @@ class SDDTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "has incomplete dependencies"):
             self.verify_after_planning()
 
-    def archive_planned_change(self):
-        self.accept_planning_then_implementation()
+    def archive_planned_change(self, *, delta=None):
+        self.accept_planning_then_implementation(delta=delta)
         root = "openspec/changes/sample/"
         archive = "openspec/changes/archive/2026-01-01-sample/"
         self.record["scope"] = [MANIFEST]
@@ -433,6 +442,25 @@ class SDDTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "differ from approved planning delta"):
             self.verify_after_planning()
         self.write(published, original)
+        self.assertEqual(self.verify_after_planning(), ("sample", 4, "implementation"))
+
+    def test_implementation_can_publish_combined_rename_and_modification(self):
+        published = "openspec/specs/example/spec.md"
+        body = ("The app SHALL respond.\n"
+                "#### Scenario: SC-1 Example\n- **WHEN** called\n- **THEN** responds\n"
+                "#### Scenario: SC-2 Example\n- **WHEN** called again\n- **THEN** responds\n")
+        Path(TASKS).unlink()
+        self.write(published, "## Requirements\n### Requirement: AC-1 Old title\n" + body)
+        self.base = self.commit()
+        revised = body.replace("respond.", "respond quickly.")
+        delta = ("## RENAMED Requirements\n- FROM: `### Requirement: AC-1 Old title`\n"
+                 "- TO: `### Requirement: AC-1 New title`\n\n"
+                 "## MODIFIED Requirements\n### Requirement: AC-1 New title\n" + revised)
+        self.archive_planned_change(delta=delta)
+        self.record["scope"].append(published)
+        for target in self.record["targets"].values():
+            target["spec"] = published
+        self.write(published, "## Requirements\n### Requirement: AC-1 New title\n" + revised)
         self.assertEqual(self.verify_after_planning(), ("sample", 4, "implementation"))
 
     def test_tooling_cannot_add_a_new_specification(self):
