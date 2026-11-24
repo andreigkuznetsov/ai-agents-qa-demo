@@ -204,8 +204,16 @@ def _key_bytes(value: str) -> bytes | None:
 def _contains_secret(value: object, secrets: tuple[str, ...]) -> bool:
     if isinstance(value, str):
         return any(secret in value for secret in secrets)
+    if isinstance(value, (date, UUID)):
+        return str(value) in secrets
     if isinstance(value, Mapping):
-        return any(_contains_secret(item, secrets) for item in value.values())
+        # These field values are fixed by Literal validators, never copied as free text.
+        public_enums = {"status", "reason_code", "operation_type", "outcome"}
+        return any(
+            _contains_secret(item, secrets)
+            for name, item in value.items()
+            if name not in public_enums
+        )
     if isinstance(value, (list, tuple)):
         return any(_contains_secret(item, secrets) for item in value)
     return False
@@ -259,7 +267,7 @@ class ToolAdapter:
         try:
             if status == 200 or (method == "POST" and status == 201):
                 projected = view.validate_json(response.body)
-                if _contains_secret(projected.model_dump(mode="json"), secrets):
+                if _contains_secret(projected.model_dump(), secrets):
                     return self._unexpected(status, write=method == "POST")
                 return status, projected
             allowed = {401, 404}
@@ -343,7 +351,7 @@ class ToolAdapter:
             return ToolFailure("INVALID_ARGUMENTS")
         key = _key_bytes(idempotency_key)
         if key is None or _contains_secret(
-            (args.order_id, args.requested_date),
+            (args.order_id, date.fromisoformat(args.requested_date)),
             (self._context.bearer, idempotency_key),
         ):
             return ToolFailure("INVALID_ARGUMENTS")

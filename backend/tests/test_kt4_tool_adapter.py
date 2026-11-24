@@ -379,3 +379,20 @@ def test_kt4_rejects_secrets_reflected_in_known_fields(
     asyncio.run(run())
     assert calls == [f"/cases/{CASE_ID}", f"/orders/{ORDER}/case-result"]
     assert BEARER not in caplog.text and KEY not in caplog.text
+
+
+def test_kt4_public_enum_is_not_reflected_key() -> None:
+    def send(request: httpx2.Request) -> httpx2.Response:
+        assert request.headers["idempotency-key"] == "OPEN"
+        return httpx2.Response(201, json=case_body())
+
+    async def run() -> None:
+        async with ToolAdapter(
+            context(), timeout=1, test_transport=httpx2.MockTransport(send)
+        ) as adapter:
+            result = await adapter.create_case(
+                {"order_id": ORDER, "requested_date": DAY}, idempotency_key="OPEN"
+            )
+        assert isinstance(result, CreateCaseResult) and result.status == 201
+
+    asyncio.run(run())
