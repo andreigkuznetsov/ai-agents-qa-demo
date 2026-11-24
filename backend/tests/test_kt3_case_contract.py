@@ -133,6 +133,43 @@ def test_case_idempotency_key_utf8_limit(
     asyncio.run(exercise())
 
 
+def test_case_malformed_json(
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = create_run(migrated_db)
+    assert initialize(migrated_db, run)
+    with authorized_client(
+        migrated_db,
+        monkeypatch,
+        LogisticsContext(run, CLIENT_B),
+        raise_server_exceptions=False,
+        case_write_timeout=4,
+    ) as (client, tokens):
+        headers = {
+            **authorization(tokens[0]),
+            "Idempotency-Key": "malformed-json",
+            "Content-Type": "application/json",
+        }
+        before = snapshot(migrated_db)
+        malformed = client.post("/cases", headers=headers, content=b"{")
+        assert (malformed.status_code, malformed.content) == (
+            422,
+            b'{"error":{"code":"VALIDATION_ERROR"}}',
+        )
+        assert snapshot(migrated_db) == before
+
+        unauthenticated = client.post(
+            "/cases",
+            headers={**headers, **authorization("invalid")},
+            content=b"{",
+        )
+        assert (unauthenticated.status_code, unauthenticated.content) == (
+            401,
+            b'{"error":{"code":"UNAUTHENTICATED"}}',
+        )
+        assert snapshot(migrated_db) == before
+
+
 def test_case_http_contract(
     migrated_db: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -158,9 +195,6 @@ def test_case_http_contract(
             401,
             {"error": {"code": "UNAUTHENTICATED"}},
         )
-        assert client.post("/cases", headers=b, content=b"{").json() == {
-            "error": {"code": "VALIDATION_ERROR"}
-        }
         for body in (
             {},
             {**PAYLOAD, "order_id": 1},
