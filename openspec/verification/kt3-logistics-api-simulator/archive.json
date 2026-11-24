@@ -1,0 +1,805 @@
+{
+  "change_id": "kt3-logistics-api-simulator",
+  "issue": 14,
+  "kind": "implementation",
+  "scope": [
+    "openspec/changes/archive/2026-11-24-kt3-logistics-api-simulator/.openspec.yaml",
+    "openspec/changes/archive/2026-11-24-kt3-logistics-api-simulator/design.md",
+    "openspec/changes/archive/2026-11-24-kt3-logistics-api-simulator/proposal.md",
+    "openspec/changes/archive/2026-11-24-kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md",
+    "openspec/changes/archive/2026-11-24-kt3-logistics-api-simulator/tasks.md",
+    "openspec/changes/kt3-logistics-api-simulator/.openspec.yaml",
+    "openspec/changes/kt3-logistics-api-simulator/design.md",
+    "openspec/changes/kt3-logistics-api-simulator/proposal.md",
+    "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md",
+    "openspec/changes/kt3-logistics-api-simulator/tasks.md",
+    "openspec/specs/logistics-api-simulator/spec.md",
+    "openspec/verification/kt3-logistics-api-simulator/archive.json"
+  ],
+  "tasks": [
+    "1.1",
+    "1.2",
+    "1.3",
+    "1.4",
+    "1.5",
+    "1.6",
+    "1.7",
+    "2.1",
+    "2.2",
+    "2.3",
+    "3.1",
+    "3.2",
+    "3.3",
+    "3.4",
+    "3.5",
+    "3.6",
+    "3.7",
+    "3.8",
+    "3.9",
+    "3.10",
+    "3.11",
+    "3.12",
+    "3.13",
+    "3.14",
+    "3.15",
+    "3.16",
+    "3.17",
+    "4.1",
+    "4.2",
+    "4.3",
+    "4.4",
+    "4.5",
+    "4.6",
+    "4.7",
+    "4.8"
+  ],
+  "targets": {
+    "SC-LAS-001": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-001",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-002": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-002",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-003": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-003",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-004": {
+      "requirement": "AC-LAS-002",
+      "scenario": "SC-LAS-004",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-005": {
+      "requirement": "AC-LAS-002",
+      "scenario": "SC-LAS-005",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-006": {
+      "requirement": "AC-LAS-003",
+      "scenario": "SC-LAS-006",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-007": {
+      "requirement": "AC-LAS-003",
+      "scenario": "SC-LAS-007",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-008": {
+      "requirement": "AC-LAS-003",
+      "scenario": "SC-LAS-008",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-009": {
+      "requirement": "AC-LAS-004",
+      "scenario": "SC-LAS-009",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-010": {
+      "requirement": "AC-LAS-004",
+      "scenario": "SC-LAS-010",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-011": {
+      "requirement": "AC-LAS-004",
+      "scenario": "SC-LAS-011",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-012": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-012",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-013": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-013",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-014": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-014",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-015": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-015",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-016": {
+      "requirement": "AC-LAS-006",
+      "scenario": "SC-LAS-016",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-017": {
+      "requirement": "AC-LAS-007",
+      "scenario": "SC-LAS-017",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-018": {
+      "requirement": "AC-LAS-007",
+      "scenario": "SC-LAS-018",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-019": {
+      "requirement": "AC-LAS-007",
+      "scenario": "SC-LAS-019",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-020": {
+      "requirement": "AC-LAS-008",
+      "scenario": "SC-LAS-020",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-021": {
+      "requirement": "AC-LAS-008",
+      "scenario": "SC-LAS-021",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    },
+    "SC-LAS-022": {
+      "requirement": "AC-LAS-008",
+      "scenario": "SC-LAS-022",
+      "spec": "openspec/specs/logistics-api-simulator/spec.md"
+    }
+  },
+  "links": [
+    {
+      "task": "1.1",
+      "target": "SC-LAS-001",
+      "test": "backend/tests/test_migrations.py::test_kt3_source_revision_matrix"
+    },
+    {
+      "task": "1.1",
+      "target": "SC-LAS-004",
+      "test": "backend/tests/test_kt3_auth.py::test_kt3_auth_scope_and_no_management"
+    },
+    {
+      "task": "1.2",
+      "target": "SC-LAS-001",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "1.2",
+      "target": "SC-LAS-002",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
+    },
+    {
+      "task": "1.3",
+      "target": "SC-LAS-001",
+      "test": "backend/tests/test_permissions.py::test_api_grants_after_repeat"
+    },
+    {
+      "task": "1.3",
+      "target": "SC-LAS-005",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "1.4",
+      "target": "SC-LAS-001",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "1.4",
+      "target": "SC-LAS-003",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "1.4",
+      "target": "SC-LAS-005",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "1.5",
+      "target": "SC-LAS-001",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_bundle_bytes_and_validation"
+    },
+    {
+      "task": "1.5",
+      "target": "SC-LAS-003",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "1.6",
+      "target": "SC-LAS-001",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
+    },
+    {
+      "task": "1.6",
+      "target": "SC-LAS-002",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
+    },
+    {
+      "task": "1.6",
+      "target": "SC-LAS-003",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "1.6",
+      "target": "SC-LAS-005",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "1.7",
+      "target": "SC-LAS-004",
+      "test": "backend/tests/test_kt3_auth.py::test_kt3_auth_scope_and_no_management"
+    },
+    {
+      "task": "1.7",
+      "target": "SC-LAS-005",
+      "test": "backend/tests/test_kt3_auth.py::test_kt3_auth_scope_and_no_management"
+    },
+    {
+      "task": "2.1",
+      "target": "SC-LAS-004",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "2.1",
+      "target": "SC-LAS-006",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "2.1",
+      "target": "SC-LAS-008",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "2.2",
+      "target": "SC-LAS-006",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_options_single_snapshot_and_revision_guard"
+    },
+    {
+      "task": "2.2",
+      "target": "SC-LAS-007",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "2.2",
+      "target": "SC-LAS-008",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "2.3",
+      "target": "SC-LAS-004",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "2.3",
+      "target": "SC-LAS-005",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "2.3",
+      "target": "SC-LAS-006",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "2.3",
+      "target": "SC-LAS-007",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "2.3",
+      "target": "SC-LAS-008",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "3.1",
+      "target": "SC-LAS-009",
+      "test": "backend/tests/test_migrations.py::test_kt3_case_constraints"
+    },
+    {
+      "task": "3.1",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_migrations.py::test_kt3_case_constraints"
+    },
+    {
+      "task": "3.1",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "3.2",
+      "target": "SC-LAS-005",
+      "test": "backend/tests/test_permissions.py::test_api_grants_after_repeat"
+    },
+    {
+      "task": "3.2",
+      "target": "SC-LAS-009",
+      "test": "backend/tests/test_permissions.py::test_api_grants_after_repeat"
+    },
+    {
+      "task": "3.2",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "3.2",
+      "target": "SC-LAS-016",
+      "test": "backend/tests/test_permissions.py::test_api_grants_after_repeat"
+    },
+    {
+      "task": "3.3",
+      "target": "SC-LAS-001",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "3.3",
+      "target": "SC-LAS-002",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.3",
+      "target": "SC-LAS-003",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "3.3",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.4",
+      "target": "SC-LAS-009",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_isolation_and_reset"
+    },
+    {
+      "task": "3.4",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_isolation_and_reset"
+    },
+    {
+      "task": "3.4",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_isolation_and_reset"
+    },
+    {
+      "task": "3.5",
+      "target": "SC-LAS-010",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_and_internal_change_both_orders"
+    },
+    {
+      "task": "3.5",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_competing_posts"
+    },
+    {
+      "task": "3.5",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_cancelled_locks_and_open_transaction"
+    },
+    {
+      "task": "3.6",
+      "target": "SC-LAS-004",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.6",
+      "target": "SC-LAS-009",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_idempotency_key_utf8_limit"
+    },
+    {
+      "task": "3.6",
+      "target": "SC-LAS-011",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.7",
+      "target": "SC-LAS-009",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.7",
+      "target": "SC-LAS-010",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.7",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_rollback_and_commit_uncertainty"
+    },
+    {
+      "task": "3.8",
+      "target": "SC-LAS-012",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.8",
+      "target": "SC-LAS-013",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.9",
+      "target": "SC-LAS-010",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.9",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.10",
+      "target": "SC-LAS-013",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_competing_posts"
+    },
+    {
+      "task": "3.10",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_competing_posts"
+    },
+    {
+      "task": "3.11",
+      "target": "SC-LAS-010",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_and_internal_change_both_orders"
+    },
+    {
+      "task": "3.11",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_and_internal_change_both_orders"
+    },
+    {
+      "task": "3.12",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_rollback_and_commit_uncertainty"
+    },
+    {
+      "task": "3.13",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_cancelled_locks_and_open_transaction"
+    },
+    {
+      "task": "3.13",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_cancelled_locks_and_open_transaction"
+    },
+    {
+      "task": "3.14",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_cancelled_locks_and_open_transaction"
+    },
+    {
+      "task": "3.14",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_rollback_and_commit_uncertainty"
+    },
+    {
+      "task": "3.15",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_rollback_and_commit_uncertainty"
+    },
+    {
+      "task": "3.16",
+      "target": "SC-LAS-004",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.16",
+      "target": "SC-LAS-016",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.17",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_timeout_and_phase_measurement"
+    },
+    {
+      "task": "3.17",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_timeout_and_phase_measurement"
+    },
+    {
+      "task": "4.1",
+      "target": "SC-LAS-004",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.1",
+      "target": "SC-LAS-017",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.1",
+      "target": "SC-LAS-018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.2",
+      "target": "SC-LAS-018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_database_and_pool_recovery"
+    },
+    {
+      "task": "4.2",
+      "target": "SC-LAS-019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_database_and_pool_recovery"
+    },
+    {
+      "task": "4.3",
+      "target": "SC-LAS-005",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.3",
+      "target": "SC-LAS-020",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.3",
+      "target": "SC-LAS-021",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.3",
+      "target": "SC-LAS-022",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.4",
+      "target": "SC-LAS-018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_before_commit"
+    },
+    {
+      "task": "4.5",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.5",
+      "target": "SC-LAS-017",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.5",
+      "target": "SC-LAS-020",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.6",
+      "target": "SC-LAS-019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.6",
+      "target": "SC-LAS-020",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.6",
+      "target": "SC-LAS-021",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.6",
+      "target": "SC-LAS-022",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.7",
+      "target": "SC-LAS-017",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_phase_measurements"
+    },
+    {
+      "task": "4.7",
+      "target": "SC-LAS-018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_phase_measurements"
+    },
+    {
+      "task": "4.7",
+      "target": "SC-LAS-019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_phase_measurements"
+    },
+    {
+      "task": "4.7",
+      "target": "SC-LAS-022",
+      "test": "backend/tests/test_kt3_runtime_logs.py::test_kt3_runtime_safe_logs"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-001",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-001",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-002",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-002",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-003",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-003",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-004",
+      "test": "backend/tests/test_kt3_auth.py::test_kt3_auth_scope_and_no_management"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-004",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-005",
+      "test": "backend/tests/test_permissions.py::test_api_grants_after_repeat"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-005",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-006",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-007",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-008",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-009",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-010",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_and_internal_change_both_orders"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-010",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-011",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-011",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_malformed_json"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-012",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-013",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-013",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_competing_posts"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_competing_posts"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-014",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_rollback_and_commit_uncertainty"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_cancelled_locks_and_open_transaction"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-016",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-017",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-017",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_before_commit"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_database_and_pool_recovery"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-020",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-021",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-022",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "SC-LAS-022",
+      "test": "backend/tests/test_kt3_runtime_logs.py::test_kt3_runtime_safe_logs"
+    },
+    {
+      "task": "4.7",
+      "target": "SC-LAS-019",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_timeout_and_phase_measurement"
+    }
+  ]
+}
