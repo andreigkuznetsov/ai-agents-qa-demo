@@ -41,6 +41,13 @@ def test_case_http_contract(
         a, b, other = [authorization(token) for token in tokens]
         before = snapshot(migrated_db)
         assert client.post("/cases", content=b"{").status_code == 401
+        unauthenticated = client.post(
+            "/cases", headers={"Authorization": "Bearer invalid"}, content=b"{"
+        )
+        assert (unauthenticated.status_code, unauthenticated.json()) == (
+            401,
+            {"error": {"code": "UNAUTHENTICATED"}},
+        )
         assert client.post("/cases", headers=b, content=b"{").json() == {
             "error": {"code": "VALIDATION_ERROR"}
         }

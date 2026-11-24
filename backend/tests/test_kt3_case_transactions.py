@@ -33,6 +33,16 @@ from app.logistics_auth import LogisticsContext
 from app.logistics_locks import initialization_lock, order_lock, request_lock
 
 
+async def wait_for_backend_exit(project: Project, pid: int) -> None:
+    async with asyncio.timeout(2):
+        with project.db() as observer:
+            observer.autocommit = True
+            while observer.execute(
+                "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE pid=%s)", (pid,)
+            ).fetchone() == (True,):
+                await asyncio.sleep(0.02)
+
+
 def test_case_lock_vectors() -> None:
     run = UUID("00112233-4455-6677-8899-aabbccddeeff")
     assert request_lock(run, "c", OPERATION, "k") == 2599177598944967164
@@ -94,6 +104,25 @@ def test_case_isolation_and_reset(
                             await connection.exec_driver_sql("SELECT pg_backend_pid()")
                         ).scalar_one() == pid
                 assert visits == [pid, pid]
+            await database.engine.dispose()
+            with migrated_db.db() as admin:
+                admin.execute(
+                    "ALTER ROLE qa_api SET session_replication_role = replica"
+                )
+            try:
+                with pytest.raises(
+                    RuntimeError, match="incompatible PostgreSQL write session"
+                ):
+                    async with database.transaction(case_write=True):
+                        pytest.fail("replica session reached the write boundary")
+            finally:
+                await database.engine.dispose()
+                with migrated_db.db() as admin:
+                    admin.execute("ALTER ROLE qa_api RESET session_replication_role")
+            async with database.transaction(case_write=True) as connection:
+                assert (
+                    await connection.exec_driver_sql("SHOW session_replication_role")
+                ).scalar_one() == "origin"
 
     asyncio.run(exercise())
 
@@ -142,11 +171,8 @@ def test_case_rollback_and_commit_uncertainty(
             committed = case_rows(migrated_db, run)
             assert len(committed[0]) == 1 and len(committed[1]) == 1
             assert len(uncertain_pids) == 1
-            with migrated_db.db() as observer:
-                assert observer.execute(
-                    "SELECT count(*) FROM pg_stat_activity WHERE pid=%s",
-                    (uncertain_pids[0],),
-                ).fetchone() == (0,)
+            assert isinstance(uncertain_pids[0], int)
+            await wait_for_backend_exit(migrated_db, uncertain_pids[0])
             assert (await post_case(client, "uncertain")).status_code == 200
 
             with monkeypatch.context() as patch:
@@ -201,11 +227,8 @@ def test_case_rollback_and_commit_uncertainty(
                     await store.database.drain_cleanup()
             assert case_rows(migrated_db, fresh) == ([], [])
             assert len(before_commit_pids) == 1
-            with migrated_db.db() as observer:
-                assert observer.execute(
-                    "SELECT count(*) FROM pg_stat_activity WHERE pid=%s",
-                    (before_commit_pids[0],),
-                ).fetchone() == (0,)
+            assert isinstance(before_commit_pids[0], int)
+            await wait_for_backend_exit(migrated_db, before_commit_pids[0])
             assert (await post_case(client, "uncommitted")).status_code == 201
 
     asyncio.run(exercise())
@@ -401,24 +424,28 @@ def test_case_timeout_and_phase_measurement(
                     wait_store,
                 ):
                     for label in ("lock_wait_success", "cancelled"):
-                        with migrated_db.db("migrate") as holder:
-                            holder.execute(
-                                "SELECT pg_advisory_xact_lock(%s::bigint)",
-                                (order_lock(run, CLIENT_B, SAME_ORDER),),
-                            )
-                            start = time.perf_counter()
-                            pending = asyncio.create_task(post_case(wait_client, label))
-                            await wait_for_advisory_block(migrated_db)
-                            if label == "cancelled":
-                                pending.cancel()
-                                with pytest.raises(asyncio.CancelledError):
-                                    await pending
-                                await wait_store.database.drain_cleanup()
-                        if label == "lock_wait_success":
-                            assert (await pending).status_code == 200
-                        record("http_total_ms", start)
+                        for index in range(3):
+                            with migrated_db.db("migrate") as holder:
+                                holder.execute(
+                                    "SELECT pg_advisory_xact_lock(%s::bigint)",
+                                    (order_lock(run, CLIENT_B, SAME_ORDER),),
+                                )
+                                start = time.perf_counter()
+                                pending = asyncio.create_task(
+                                    post_case(wait_client, f"{label}-{index}")
+                                )
+                                await wait_for_advisory_block(migrated_db)
+                                if label == "cancelled":
+                                    pending.cancel()
+                                    with pytest.raises(asyncio.CancelledError):
+                                        await pending
+                                    await wait_store.database.drain_cleanup()
+                            if label == "lock_wait_success":
+                                assert (await pending).status_code == 200
+                            record("http_total_ms", start)
                     assert all(
-                        key[0] != "cancelled" for key in case_rows(migrated_db, run)[1]
+                        not str(key[0]).startswith("cancelled-")
+                        for key in case_rows(migrated_db, run)[1]
                     )
                 await db.drain_cleanup()
             assert (await post_case(client, "recovered")).status_code == 200
