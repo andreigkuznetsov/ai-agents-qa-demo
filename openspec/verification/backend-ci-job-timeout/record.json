@@ -1,0 +1,21 @@
+{
+  "change_id": "backend-ci-job-timeout",
+  "issue": 20,
+  "kind": "tooling",
+  "reason": "Увеличение общего лимита задачи Backend CI с сохранением команд и проверок. Продуктовые требования и сценарии не затронуты.",
+  "scope": [
+    ".github/workflows/ci.yml",
+    "openspec/verification/backend-ci-job-timeout/record.json",
+    "openspec/verification/backend-ci-job-timeout/evidence.md"
+  ],
+  "tasks": [
+    "1.1"
+  ],
+  "targets": {},
+  "links": [
+    {
+      "task": "1.1",
+      "manual": "openspec/verification/backend-ci-job-timeout/evidence.md"
+    }
+  ]
+}
