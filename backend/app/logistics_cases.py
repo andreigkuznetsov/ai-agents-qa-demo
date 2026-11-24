@@ -53,7 +53,8 @@ def read_idempotency_key(request: Request) -> str:
         raise ValueError("invalid idempotency key")
     key = values[0].decode("utf-8")
     if not key.strip() or any(
-        ord(character) < 32 or character == "\x7f" for character in key
+        (ord(character) < 32 and character != "\t") or character == "\x7f"
+        for character in key
     ):
         raise ValueError("invalid idempotency key")
     return key

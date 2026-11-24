@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import logging
 import secrets
 from typing import Any
 from uuid import UUID, uuid4
@@ -52,7 +53,8 @@ def test_case_idempotency_key_utf8_limit(
         header = b"idempotency-key"
         ascii_key = b"a" * 512
         unicode_key = ("é" * 256).encode("utf-8")
-        previous_key = b"previous-correct-key"
+        previous_key = b"previous\tcorrect-key"
+        caplog.set_level(logging.INFO)
         assert len(ascii_key) == len(unicode_key) == 512
         before = snapshot(migrated_db)
         statements = 0
@@ -126,7 +128,7 @@ def test_case_idempotency_key_utf8_limit(
                 (key.decode("utf-8"), len(key), case_id)
                 for key in (previous_key, ascii_key, unicode_key)
             }
-        assert "previous-correct-key" not in caplog.text and token not in caplog.text
+        assert previous_key.decode() not in caplog.text and token not in caplog.text
 
     asyncio.run(exercise())
 
