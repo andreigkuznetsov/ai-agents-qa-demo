@@ -1,20 +1,22 @@
 import importlib
 import time
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import op
 from conftest import Project, prepare_kt2
 from fastapi.testclient import TestClient
-from psycopg import Error
+from psycopg import Error, errors
 from support.kt3_fixture_loader import (
     FIXTURE,
     FIXTURE_VERSION,
     FixtureError,
     load_fixture,
+    read_bundle,
 )
 from test_compose_local import postgres_volume
+from test_kt3_fixtures import CLIENT_A, CLIENT_B, SAME_ORDER, create_run, initialize
 
 
 def kt3_catalog(project: Project) -> tuple[object, ...]:
@@ -102,6 +104,14 @@ def test_kt3_source_revision_matrix(
             "CREATE FUNCTION qa.kt3_test_function() RETURNS int LANGUAGE sql AS 'SELECT 1'",
             "DROP FUNCTION qa.kt3_test_function()",
         ),
+        (
+            "ALTER ROLE qa_api SET session_replication_role = replica",
+            "ALTER ROLE qa_api RESET session_replication_role",
+        ),
+        (
+            "GRANT SET ON PARAMETER session_replication_role TO qa_api",
+            "REVOKE SET ON PARAMETER session_replication_role FROM qa_api",
+        ),
     ):
         with fresh.db() as admin:
             admin.execute(change)
@@ -141,7 +151,7 @@ def test_kt3_source_revision_matrix(
     with fresh.db() as admin:
         assert admin.execute(
             "SELECT version_num FROM qa.alembic_version"
-        ).fetchone() == ("0002_las_fixtures",)
+        ).fetchone() == ("0003_las_cases",)
         admin.execute("ALTER TABLE qa.las_orders ENABLE TRIGGER ALL")
         admin.execute("ALTER ROLE qa_migrate SET session_replication_role = replica")
     run = uuid4()
@@ -161,7 +171,7 @@ def test_kt3_source_revision_matrix(
                 "SELECT count(*) FROM qa.las_fixture_runs"
             ).fetchone() == (0,)
             assert observer.execute("SELECT * FROM qa.alembic_version").fetchall() == [
-                ("0002_las_fixtures",)
+                ("0003_las_cases",)
             ]
         assert kt3_catalog(fresh) == before
     finally:
@@ -182,24 +192,47 @@ def test_kt3_upgrade_rollback_and_recovery(
 
     def fail_ddl(name: str, *args: Any, **kwargs: Any) -> Any:
         result = create(name, *args, **kwargs)
-        if name == "las_fixture_runs":
+        if name == "las_cases":
             op.get_bind().exec_driver_sql("SELECT 1/0")
         return result
 
     def fail_grant(conn: Any) -> None:
         grants(conn)
-        conn.exec_driver_sql("GRANT SELECT ON qa.las_orders TO nonexistent_test_role")
+        conn.exec_driver_sql("GRANT SELECT ON qa.las_cases TO nonexistent_test_role")
 
-    for source in (None, "0001_runs"):
-        row = None
+    row = None
+    previous_fixture = None
+    for source in (None, "0001_runs", "0002_las_fixtures"):
         if source:
-            prepare_kt2(fresh)
-            with fresh.db("api") as api:
-                row = api.execute(
-                    "INSERT INTO qa.runs (run_id,schema_version,status) "
-                    "VALUES (%s,1,'CREATED') RETURNING *",
-                    (uuid4(),),
-                ).fetchone()
+            prepare_kt2(fresh, source)
+            if row is None:
+                with fresh.db("api") as api:
+                    row = api.execute(
+                        "INSERT INTO qa.runs (run_id,schema_version,status) "
+                        "VALUES (%s,1,'CREATED') RETURNING *",
+                        (uuid4(),),
+                    ).fetchone()
+            if source == "0002_las_fixtures":
+                assert row is not None
+                bundle = read_bundle(FIXTURE)
+                with fresh.db("migrate") as migrator:
+                    migrator.execute(
+                        "INSERT INTO qa.las_fixture_runs VALUES (%s,%s,%s)",
+                        (row[0], FIXTURE_VERSION, bundle.digest),
+                    )
+                    migrator.execute(
+                        "INSERT INTO qa.las_run_clients VALUES (%s,%s)",
+                        (row[0], CLIENT_A),
+                    )
+                    migrator.execute(
+                        "INSERT INTO qa.las_orders VALUES (%s,%s,%s,'ACTIVE','2026-11-25')",
+                        (row[0], CLIENT_A, SAME_ORDER),
+                    )
+                    migrator.execute(
+                        "INSERT INTO qa.las_delivery_dates VALUES (%s,%s,%s,'2026-11-26')",
+                        (row[0], CLIENT_A, SAME_ORDER),
+                    )
+                previous_fixture = legacy_fixture_snapshot(fresh)
             with monkeypatch.context() as patch:
                 fresh.api_env(patch)
                 with TestClient(importlib.import_module("app.main").app) as client:
@@ -216,6 +249,8 @@ def test_kt3_upgrade_rollback_and_recovery(
             assert isinstance(failure.value.__cause__, Error)
             assert failure.value.__cause__.sqlstate == sqlstate
             assert kt3_catalog(fresh) == before
+            if previous_fixture is not None:
+                assert legacy_fixture_snapshot(fresh) == previous_fixture
             assert not fresh.compose("ps", "-q", "api")
             if source:
                 with fresh.db("api") as api:
@@ -230,12 +265,108 @@ def test_kt3_upgrade_rollback_and_recovery(
     with fresh.db("api") as api:
         assert api.execute("SELECT * FROM qa.runs").fetchall() == [row]
         assert api.execute("SELECT version_num FROM qa.alembic_version").fetchone() == (
-            "0002_las_fixtures",
+            "0003_las_cases",
         )
         assert api.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_schema='qa' "
             "AND table_name='runs' ORDER BY ordinal_position"
         ).fetchall() == [("run_id",), ("schema_version",), ("created_at",), ("status",)]
+    assert row is not None
+    assert previous_fixture and legacy_fixture_snapshot(fresh) == previous_fixture
+    with fresh.db("migrate") as migrator:
+        assert not load_fixture(migrator, cast(UUID, row[0]), FIXTURE_VERSION, FIXTURE)
+    new_run = create_run(fresh)
+    assert initialize(fresh, new_run)
+    with fresh.db("api") as api:
+        assert api.execute(
+            "SELECT run_id FROM qa.las_cases ORDER BY run_id"
+        ).fetchall() == [(new_run,)]
+        assert api.execute("SELECT * FROM qa.las_idempotency_keys").fetchall() == []
+
+
+def legacy_fixture_snapshot(project: Project) -> tuple[object, ...]:
+    with project.db() as observer:
+        observer.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        return tuple(
+            observer.execute(
+                f"SELECT to_jsonb(t) FROM qa.{table} AS t ORDER BY to_jsonb(t)"
+            ).fetchall()
+            for table in (
+                "las_fixture_runs",
+                "las_run_clients",
+                "las_orders",
+                "las_delivery_dates",
+            )
+        )
+
+
+def test_kt3_case_constraints(
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run, other, case_id = create_run(migrated_db), create_run(migrated_db), uuid4()
+    assert initialize(migrated_db, run) and initialize(migrated_db, other)
+    insert_case = "INSERT INTO qa.las_cases VALUES (%s,%s,%s,%s,'2026-11-26','DELIVERY_RESCHEDULE','OPEN')"
+    insert_key = "INSERT INTO qa.las_idempotency_keys VALUES (%s,%s,%s,%s,%s,%s,%s)"
+    with migrated_db.db("api") as api:
+        api.execute(insert_case, (run, CLIENT_B, case_id, SAME_ORDER))
+        values = (
+            run,
+            CLIENT_B,
+            "DELIVERY_RESCHEDULE",
+            "key",
+            SAME_ORDER,
+            "2026-11-26",
+            case_id,
+        )
+        api.execute(insert_key, values)
+        with pytest.raises(errors.UniqueViolation), api.transaction():
+            api.execute(insert_case, (run, CLIENT_B, uuid4(), SAME_ORDER))
+        with pytest.raises(errors.UniqueViolation), api.transaction():
+            api.execute(insert_key, values)
+        for index, invalid in (
+            (0, other),
+            (1, CLIENT_A),
+            (2, "OTHER"),
+            (4, "absent"),
+            (5, "2026-11-27"),
+        ):
+            params = list(values)
+            params[3] = "invalid"
+            params[index] = invalid
+            with pytest.raises(errors.ForeignKeyViolation), api.transaction():
+                api.execute(insert_key, params)
+    migration = importlib.import_module("app.migrate")
+    monkeypatch.setenv("QA_DB_HOST", migrated_db.host)
+    monkeypatch.setenv("QA_DB_PASSWORD", migrated_db.passwords["migrate"])
+    for change, repair in (
+        (
+            "ALTER TABLE qa.las_idempotency_keys DROP CONSTRAINT las_keys_case_fk",
+            "ALTER TABLE qa.las_idempotency_keys ADD CONSTRAINT las_keys_case_fk FOREIGN KEY "
+            "(run_id,client_id,order_id,requested_date,operation_type,case_id) REFERENCES qa.las_cases"
+            "(run_id,client_id,order_id,requested_date,operation_type,case_id)",
+        ),
+        (
+            "ALTER TABLE qa.las_cases DROP CONSTRAINT las_cases_business_key",
+            "ALTER TABLE qa.las_cases ADD CONSTRAINT las_cases_business_key UNIQUE (run_id,client_id,order_id,requested_date,operation_type)",
+        ),
+        (
+            "DROP INDEX qa.las_keys_case_idx; CREATE INDEX las_keys_case_idx ON qa.las_idempotency_keys(case_id)",
+            "DROP INDEX qa.las_keys_case_idx; CREATE INDEX las_keys_case_idx ON qa.las_idempotency_keys(run_id,client_id,order_id,requested_date,operation_type,case_id)",
+        ),
+        (
+            "GRANT UPDATE (request_key) ON qa.las_idempotency_keys TO qa_api",
+            "REVOKE UPDATE (request_key) ON qa.las_idempotency_keys FROM qa_api",
+        ),
+    ):
+        with migrated_db.db() as admin:
+            admin.execute(change)
+        try:
+            with pytest.raises(RuntimeError):
+                migration.upgrade()
+        finally:
+            with migrated_db.db() as admin:
+                admin.execute(repair)
+    migration.upgrade()
 
 
 def test_clean_start(fresh: Project) -> None:

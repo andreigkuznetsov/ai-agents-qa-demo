@@ -159,7 +159,7 @@ def migrated_db(fresh: Project) -> Project:
     return fresh
 
 
-def prepare_kt2(project: Project) -> None:
+def prepare_kt2(project: Project, revision: str = "0001_runs") -> None:
     """Create the historical revision in a disposable test database."""
     engine = create_engine(
         Settings(password=project.passwords["migrate"], host=project.host).url(
@@ -171,8 +171,12 @@ def prepare_kt2(project: Project) -> None:
         with engine.begin() as conn:
             config = migration_config()
             config.attributes["connection"] = conn
-            command.upgrade(config, "0001_runs")
+            command.upgrade(config, revision)
             conn.exec_driver_sql("GRANT SELECT, INSERT ON qa.runs TO qa_api")
             conn.exec_driver_sql("GRANT SELECT ON qa.alembic_version TO qa_api")
+            if revision == "0002_las_fixtures":
+                conn.exec_driver_sql(
+                    "GRANT SELECT ON qa.las_orders, qa.las_delivery_dates TO qa_api"
+                )
     finally:
         engine.dispose()

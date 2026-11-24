@@ -5,12 +5,14 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.case_store import CaseStore
 from app.database import Database, Settings
 from app.logistics_auth import (
     LogisticsContext,
     Unauthenticated,
     unauthenticated_response,
 )
+from app.logistics_cases import case_router
 from app.logistics_orders import order_router
 from app.order_store import OrderStore
 from app.readiness import Readiness
@@ -22,6 +24,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     readiness = Readiness(database)
     app.state.readiness = readiness
     app.state.order_store = OrderStore(database)
+    app.state.case_store = CaseStore(database)
     try:
         yield
     finally:
@@ -68,6 +71,8 @@ async def ready(request: Request) -> JSONResponse:
 
 def create_app(
     context_by_digest: Mapping[str, LogisticsContext] | None = None,
+    *,
+    case_write_timeout: float | None = None,
 ) -> FastAPI:
     application = FastAPI(
         title="AI Agents QA Demo",
@@ -78,6 +83,7 @@ def create_app(
     )
     application.include_router(health_router)
     application.include_router(order_router(context_by_digest or {}))
+    application.include_router(case_router(context_by_digest or {}, case_write_timeout))
     application.add_exception_handler(Unauthenticated, unauthenticated_response)
     return application
 

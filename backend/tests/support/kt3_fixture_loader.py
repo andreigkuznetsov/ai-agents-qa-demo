@@ -3,10 +3,12 @@ import json
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from psycopg import Connection
 from psycopg.pq import TransactionStatus
+
+from app.logistics_locks import initialization_lock
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "logistics" / "v1.json"
 FIXTURE_VERSION = "v1"
@@ -30,6 +32,7 @@ class Bundle:
     digest: str
     clients: tuple[str, ...]
     orders: tuple[Order, ...]
+    initial_case: tuple[str, str, date]
 
 
 def _object(value: object, fields: set[str]) -> dict[str, object]:
@@ -113,33 +116,22 @@ def read_bundle(path: Path) -> Bundle:
         data["initial_case_s04"],
         {"client_id", "order_id", "requested_date", "operation_type", "status"},
     )
-    order = orders.get((_identifier(case["client_id"]), _identifier(case["order_id"])))
+    client, order_id = _identifier(case["client_id"]), _identifier(case["order_id"])
+    order = orders.get((client, order_id))
+    requested_date = _date(case["requested_date"])
     if (
         order is None
         or order.status != "ACTIVE"
-        or _date(case["requested_date"]) not in order.options
+        or requested_date not in order.options
         or case["operation_type"] != "DELIVERY_RESCHEDULE"
         or case["status"] != "OPEN"
     ):
         raise FixtureError("invalid S04 fixture description")
-    return Bundle(hashlib.sha256(raw).hexdigest(), clients, tuple(orders.values()))
-
-
-def _lock_key(namespace: int, payload: bytes) -> int:
-    digest = int.from_bytes(hashlib.sha256(payload).digest()[:8], "big")
-    return (namespace << 61) | (digest >> 3)
-
-
-def initialization_lock(run_id: UUID) -> int:
-    return _lock_key(3, run_id.bytes)
-
-
-def order_lock(run_id: UUID, client: str, order_id: str) -> int:
-    encoded = tuple(field.encode("utf-8") for field in (client, order_id))
-    return _lock_key(
-        2,
-        run_id.bytes
-        + b"".join(len(field).to_bytes(4, "big") + field for field in encoded),
+    return Bundle(
+        hashlib.sha256(raw).hexdigest(),
+        clients,
+        tuple(orders.values()),
+        (client, order_id, requested_date),
     )
 
 
@@ -196,5 +188,11 @@ def load_fixture(
                 for order in bundle.orders
                 for option in order.options
             ],
+        )
+        client, order_id, requested_date = bundle.initial_case
+        cur.execute(
+            "INSERT INTO qa.las_cases (run_id,client_id,case_id,order_id,requested_date,operation_type,status) "
+            "VALUES (%s,%s,%s,%s,%s,'DELIVERY_RESCHEDULE','OPEN')",
+            (run_id, client, uuid4(), order_id, requested_date),
         )
     return True
