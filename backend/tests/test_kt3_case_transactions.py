@@ -361,16 +361,20 @@ def test_case_timeout_and_phase_measurement(
             ) -> Any:
                 start = time.perf_counter()
                 try:
-                    if label == "lock_timeout" and statement is SET_LOCK_LIMIT:
+                    if label.startswith("lock_timeout") and statement is SET_LOCK_LIMIT:
                         params = {"budget": "60ms"}
                     return await execute(conn, statement, params, **kw)
                 except DBAPIError as error:
-                    if label == "lock_timeout" and statement is TAKE_LOCK:
+                    if label.startswith("lock_timeout") and statement is TAKE_LOCK:
                         lock_errors.append(getattr(error.orig, "sqlstate", None))
                     raise
                 finally:
                     if statement is TAKE_LOCK:
-                        record("lock_ms", start)
+                        namespace = params["lock"] >> 61
+                        assert namespace in (1, 2)
+                        record(
+                            "key_lock_ms" if namespace == 1 else "order_lock_ms", start
+                        )
                     if statement is INSERT_CASE or statement is INSERT_KEY:
                         record("write_ms", start)
 
@@ -404,19 +408,24 @@ def test_case_timeout_and_phase_measurement(
                     record("http_total_ms", start)
                     assert response.status_code == (201 if index == 0 else 200)
                 before = case_rows(migrated_db, run)
-                label = "lock_timeout"
-                for index in range(4):
-                    with migrated_db.db("migrate") as holder:
-                        holder.execute(
-                            "SELECT pg_advisory_xact_lock(%s::bigint)",
-                            (order_lock(run, CLIENT_B, SAME_ORDER),),
+                for label in ("lock_timeout_key", "lock_timeout_order"):
+                    for index in range(4):
+                        key = f"{label}-{index}"
+                        lock = (
+                            request_lock(run, CLIENT_B, OPERATION, key)
+                            if label == "lock_timeout_key"
+                            else order_lock(run, CLIENT_B, SAME_ORDER)
                         )
-                        start = time.perf_counter()
-                        response = await post_case(client, f"timeout-{index}")
-                        record("http_total_ms", start)
-                        assert response.status_code == 500
-                    assert case_rows(migrated_db, run) == before
-                assert lock_errors == ["55P03"] * 4
+                        with migrated_db.db("migrate") as holder:
+                            holder.execute(
+                                "SELECT pg_advisory_xact_lock(%s::bigint)", (lock,)
+                            )
+                            start = time.perf_counter()
+                            response = await post_case(client, key)
+                            record("http_total_ms", start)
+                            assert response.status_code == 500
+                        assert case_rows(migrated_db, run) == before
+                assert lock_errors == ["55P03"] * 8
 
                 # A separate test session uses the existing, longer SQL cap to observe waiters.
                 async with running_app(migrated_db, patch, run) as (
@@ -460,9 +469,10 @@ def test_case_timeout_and_phase_measurement(
         assert (
             version == 180007
             and {
-                "lock_timeout/cleanup_ms",
+                "lock_timeout_key/key_lock_ms",
+                "lock_timeout_order/order_lock_ms",
                 "cancelled/cleanup_ms",
-                "lock_wait_success/lock_ms",
+                "lock_wait_success/order_lock_ms",
             }
             <= out.keys()
         )

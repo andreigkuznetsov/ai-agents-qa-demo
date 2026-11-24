@@ -27,4 +27,4 @@ COPY migrations/ migrations/
 ENV UVICORN_HOST=0.0.0.0 UVICORN_PORT=8000 WEB_CONCURRENCY=1
 USER 10001:10001
 EXPOSE 8000
-CMD ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app"]
+CMD ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--no-access-log"]

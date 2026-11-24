@@ -9,6 +9,7 @@ from sqlalchemy.engine import Row
 
 from app.database import Database
 from app.logistics_auth import LogisticsContext
+from app.logistics_faults import FaultHook, no_fault
 from app.logistics_locks import order_lock, request_lock
 
 Operation = Literal["DELIVERY_RESCHEDULE"]
@@ -57,6 +58,17 @@ READ_CASES = text(f"""
     WHERE {ORDER_SCOPE}
     ORDER BY case_id
 """)
+READ_RESULT = text("""
+    SELECT c.case_id, o.order_id, c.requested_date, c.operation_type, c.status
+    FROM qa.las_orders AS o
+    LEFT JOIN qa.las_idempotency_keys AS k
+      ON (k.run_id, k.client_id, k.order_id) = (o.run_id, o.client_id, o.order_id)
+      AND k.operation_type = :operation_type AND k.request_key = :request_key
+    LEFT JOIN qa.las_cases AS c
+      ON (c.run_id, c.client_id, c.case_id, c.order_id, c.requested_date, c.operation_type)
+       = (k.run_id, k.client_id, k.case_id, k.order_id, k.requested_date, k.operation_type)
+    WHERE o.run_id = :run_id AND o.client_id = :client_id AND o.order_id = :order_id
+""")
 TAKE_LOCK = text("SELECT pg_advisory_xact_lock(CAST(:lock AS bigint))")
 SET_LOCK_LIMIT = text("SELECT set_config('lock_timeout', :budget, true)")
 
@@ -81,8 +93,9 @@ class CaseRejected(Exception):
 
 
 class CaseStore:
-    def __init__(self, database: Database):
+    def __init__(self, database: Database, fault: FaultHook = no_fault):
         self.database = database
+        self.fault = fault
 
     async def create(
         self,
@@ -142,7 +155,31 @@ class CaseStore:
                 ).one()
             case = Case.from_row(case_row)
             await conn.execute(INSERT_KEY, {**params, "case_id": case.case_id})
+            await self.fault(context, "before_commit")
+        await self.fault(context, "after_commit")
         return case, created
+
+    async def result_for_order(
+        self, context: LogisticsContext, order_id: str, key: str, *, deadline: float
+    ) -> tuple[bool, Case | None]:
+        async with asyncio.timeout_at(deadline):
+            await self.fault(context, "before_result_read")
+            async with self.database.transaction(read_committed=True) as conn:
+                row = (
+                    await conn.execute(
+                        READ_RESULT,
+                        {
+                            "run_id": context.run_id,
+                            "client_id": context.client_id,
+                            "order_id": order_id,
+                            "operation_type": OPERATION,
+                            "request_key": key,
+                        },
+                    )
+                ).one_or_none()
+        if row is None:
+            return False, None
+        return True, Case.from_row(row) if row.case_id is not None else None
 
     async def read(self, context: LogisticsContext, case_id: UUID) -> Case | None:
         async with self.database.transaction() as conn:

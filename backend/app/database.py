@@ -83,6 +83,10 @@ class CommitOutcomeUnknown(RuntimeError):
     """The API did not receive confirmation of a case commit."""
 
 
+class IncompatibleRevision(RuntimeError):
+    """The database does not match the packaged migration revision."""
+
+
 class Database:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -118,13 +122,13 @@ class Database:
 
     @asynccontextmanager
     async def transaction(
-        self, *, case_write: bool = False
+        self, *, case_write: bool = False, read_committed: bool = False
     ) -> AsyncIterator[AsyncConnection]:
         connection = await self.engine.connect()
         cancelled = False
         invalidate = False
         try:
-            if case_write:
+            if case_write or read_committed:
                 await connection.execution_options(isolation_level="READ COMMITTED")
             transaction = await connection.begin()
             await self.assert_compatible(connection)
@@ -158,7 +162,7 @@ class Database:
 
     async def assert_compatible(self, connection: AsyncConnection) -> None:
         if await connection.run_sync(current_revisions) != (self.head,):
-            raise RuntimeError("incompatible database revision")
+            raise IncompatibleRevision("incompatible database revision")
 
     async def _release(
         self, connection: AsyncConnection, *, invalidate: bool = False

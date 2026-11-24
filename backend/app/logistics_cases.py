@@ -4,19 +4,24 @@ from collections.abc import Mapping
 from datetime import date
 from math import isfinite
 from typing import Annotated, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.case_store import OPERATION, CaseRejected, CaseStore, Operation
+from app.database import IncompatibleRevision
 from app.logistics_auth import LogisticsContext, logistics_auth
+from app.logistics_faults import ResultCheckUnavailable
 from app.logistics_responses import error_response, not_found
 
 POST_PATH = "/cases"
 LIST_PATH = "/orders/{order_id}/cases"
 CASE_PATH = "/cases/{case_id}"
+RESULT_PATH = "/orders/{order_id}/case-result"
 MAX_IDEMPOTENCY_KEY_BYTES = 512
 logger = logging.getLogger(__name__)
 
@@ -33,6 +38,16 @@ class CaseResponse(BaseModel):
 
 class CaseListResponse(BaseModel):
     cases: list[CaseResponse]
+
+
+class CaseResultFound(BaseModel):
+    outcome: Literal["FOUND"] = "FOUND"
+    case: CaseResponse
+
+
+class CaseResultNotFound(BaseModel):
+    outcome: Literal["NOT_FOUND"] = "NOT_FOUND"
+    case: None = None
 
 
 def is_database_text(value: str) -> bool:
@@ -86,11 +101,16 @@ async def case_input(request: Request) -> tuple[str, date, str]:
 def case_router(
     context_by_digest: Mapping[str, LogisticsContext],
     write_timeout: float | None,
+    result_timeout: float | None,
 ) -> APIRouter:
     if write_timeout is not None and (
         not isfinite(write_timeout) or write_timeout <= 0
     ):
         raise ValueError("case write timeout must be positive and finite")
+    if result_timeout is not None and (
+        not isfinite(result_timeout) or result_timeout <= 0
+    ):
+        raise ValueError("case result timeout must be positive and finite")
     router = APIRouter()
     authenticate = logistics_auth(context_by_digest)
 
@@ -119,6 +139,44 @@ def case_router(
             return error_response(rejection.code, status)
         response.status_code = 201 if created else 200
         return CaseResponse.model_validate(case)
+
+    @router.get(RESULT_PATH, response_model=CaseResultFound | CaseResultNotFound)
+    async def read_case_result(
+        order_id: str,
+        request: Request,
+        context: Annotated[LogisticsContext, Depends(authenticate)],
+    ) -> CaseResultFound | CaseResultNotFound | JSONResponse:
+        try:
+            key = read_idempotency_key(request)
+        except ValueError:
+            return error_response("VALIDATION_ERROR", 422)
+        if not is_database_text(order_id):
+            return not_found(RESULT_PATH, logger)
+        store: CaseStore = request.app.state.case_store
+        try:
+            if result_timeout is None:
+                raise ResultCheckUnavailable()
+            deadline = asyncio.get_running_loop().time() + result_timeout
+            accessible, case = await store.result_for_order(
+                context, order_id, key, deadline=deadline
+            )
+        except (
+            DBAPIError,
+            PoolTimeout,
+            TimeoutError,
+            IncompatibleRevision,
+            ResultCheckUnavailable,
+        ):
+            code = "RESULT_CHECK_UNAVAILABLE"
+            logger.warning(
+                "route=%s code=%s correlation_id=%s", RESULT_PATH, code, uuid4()
+            )
+            return error_response(code, 503)
+        if not accessible:
+            return not_found(RESULT_PATH, logger)
+        if case is None:
+            return CaseResultNotFound()
+        return CaseResultFound(case=CaseResponse.model_validate(case))
 
     @router.get(LIST_PATH, response_model=CaseListResponse)
     async def read_case_list(
