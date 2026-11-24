@@ -21,6 +21,7 @@
     "backend/tests/test_kt3_order_reads.py",
     "backend/tests/test_migrations.py",
     "backend/tests/test_permissions.py",
+    "openspec/changes/kt3-logistics-api-simulator/tasks.md",
     "openspec/verification/kt3-logistics-api-simulator/pr3.json"
   ],
   "tasks": [
