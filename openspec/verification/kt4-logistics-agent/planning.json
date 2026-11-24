@@ -1,0 +1,26 @@
+{
+  "change_id": "kt4-logistics-agent",
+  "issue": 25,
+  "kind": "planning",
+  "scope": [
+    "docs/development/kt4-business-decisions.md",
+    "openspec/changes/kt4-logistics-agent/.openspec.yaml",
+    "openspec/changes/kt4-logistics-agent/design.md",
+    "openspec/changes/kt4-logistics-agent/proposal.md",
+    "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md",
+    "openspec/changes/kt4-logistics-agent/tasks.md",
+    "openspec/verification/kt4-logistics-agent/planning.json"
+  ],
+  "decisions": "docs/development/kt4-business-decisions.md",
+  "artifacts": {
+    "docs/development/kt4-business-decisions.md": "62ed92117706aafdb2b6d8a914e2bb1dc7db66d5a8a1b4ed275cf03f04886174",
+    "openspec/changes/kt4-logistics-agent/.openspec.yaml": "0b89965c6919ee9f0b3679bc8491b3c9efd623f2ceac7e5bd3929eff87f22215",
+    "openspec/changes/kt4-logistics-agent/design.md": "9be88d77149aca50269f0cb6dff85efbfa5ffedad7d1d27773a706195e5ff4f2",
+    "openspec/changes/kt4-logistics-agent/proposal.md": "70861cbeeb0c950536076be7820dc1eaaa5ebf9e6f442e2cb344d7f3d369ae6d",
+    "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md": "fb11c8fea51e010f0af07890ce1dfcef443dd884e60190166d458e2d870bac79",
+    "openspec/changes/kt4-logistics-agent/tasks.md": "fa3e7f0d2f412626ad68ee85879a4584e65d867257d35115a20473701f995c05"
+  },
+  "tasks": [],
+  "targets": {},
+  "links": []
+}
