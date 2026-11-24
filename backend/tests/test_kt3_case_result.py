@@ -46,12 +46,44 @@ class Profiles:
             await action()
 
 
-class ResponseLost(ConnectionError):
-    """Observed by the test caller instead of a confirmed HTTP response."""
+class AbortCaseWrite(RuntimeError):
+    """Abort the transaction before commit in the isolated test."""
 
 
-async def lose_response() -> None:
-    raise ResponseLost()
+@dataclass
+class DeliveryFault:
+    armed: bool = False
+    statuses: list[int] = field(default_factory=list)
+    posts: int = 0
+    checks: int = 0
+
+    async def drop_after_commit(self) -> None:
+        self.armed = True
+
+    async def abort_before_commit(self) -> None:
+        self.armed = True
+        raise AbortCaseWrite()
+
+
+class FaultyDelivery(httpx.AsyncBaseTransport):
+    def __init__(self, app: httpx.ASGITransport, fault: DeliveryFault):
+        self.app = app
+        self.fault = fault
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            self.fault.posts += 1
+        if request.method == "GET":
+            self.fault.checks += 1
+        response = await self.app.handle_async_request(request)
+        if self.fault.armed and request.method == "POST":
+            self.fault.armed = False
+            self.fault.statuses.append(response.status_code)
+            await response.aclose()
+            raise httpx.ReadError(
+                "synthetic response delivery failure", request=request
+            )
+        return response
 
 
 async def unavailable() -> None:
@@ -65,6 +97,7 @@ async def result_app(
     *contexts: LogisticsContext,
     fault: FaultHook = no_fault,
     result_timeout: float = 2,
+    delivery: DeliveryFault | None = None,
 ) -> AsyncIterator[tuple[httpx.AsyncClient, tuple[str, ...], CaseStore]]:
     project.api_env(monkeypatch)
     tokens = tuple(secrets.token_urlsafe(32) for _ in contexts)
@@ -77,10 +110,11 @@ async def result_app(
         case_result_timeout=result_timeout,
         case_fault=fault,
     )
+    asgi = httpx.ASGITransport(app=app, raise_app_exceptions=delivery is None)
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
+            transport=asgi if delivery is None else FaultyDelivery(asgi, delivery),
             base_url="http://synthetic-test",
         ) as client,
     ):
@@ -127,6 +161,21 @@ def test_case_result_contract(
             for token, key in ((a, "no-key"), (b, "original"), (other, "original")):
                 missing = await result(client, token, key)
                 assert (missing.status_code, missing.json()) == (200, ABSENT)
+            mismatched = await result(
+                client, a, "original", "/orders/owner-only/case-result"
+            )
+            assert (mismatched.status_code, mismatched.json()) == (200, ABSENT)
+            spoofed = await client.get(
+                RESULT,
+                params={"run_id": str(owner.run_id), "client_id": CLIENT_B},
+                headers={
+                    **authorization(b),
+                    "Idempotency-Key": "original",
+                    "X-Run-Id": str(owner.run_id),
+                    "X-Client-Id": CLIENT_B,
+                },
+            )
+            assert (spoofed.status_code, spoofed.json()) == (200, ABSENT)
             for token, order in (
                 (a, "absent"),
                 (other, "owner-only"),
@@ -170,6 +219,11 @@ def test_case_result_contract(
             assert (unauthorized.status_code, unauthorized.json()) == (
                 401,
                 {"error": {"code": "UNAUTHENTICATED"}},
+            )
+            no_bearer = await client.get(RESULT)
+            assert (no_bearer.status_code, no_bearer.json()) == (
+                401,
+                unauthorized.json(),
             )
             assert snapshot(migrated_db) == before
 
@@ -221,13 +275,21 @@ def test_case_result_fault_profiles(
     migrated_db: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def exercise() -> None:
-        before, after, repeated = (seeded(migrated_db) for _ in range(3))
+        before, after, repeated, peer = (seeded(migrated_db) for _ in range(4))
         same_run_client = LogisticsContext(after.run_id, CLIENT_A)
+        delivery = DeliveryFault()
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def coordinated_unavailability() -> None:
+            entered.set()
+            await asyncio.wait_for(release.wait(), 1.5)
+            await unavailable()
+
         await_faults: dict[tuple[LogisticsContext, FaultPhase, int], FaultAction] = {
-            (before, "before_commit", 1): lose_response,
-            (repeated, "before_commit", 1): lose_response,
-            (after, "after_commit", 1): lose_response,
-            (after, "before_result_read", 2): unavailable,
+            (before, "before_commit", 1): delivery.abort_before_commit,
+            (repeated, "before_commit", 1): delivery.abort_before_commit,
+            (after, "after_commit", 1): delivery.drop_after_commit,
+            (after, "before_result_read", 2): coordinated_unavailability,
         }
         profiles = Profiles(await_faults)
         async with result_app(
@@ -237,7 +299,9 @@ def test_case_result_fault_profiles(
             after,
             repeated,
             same_run_client,
+            peer,
             fault=profiles,
+            delivery=delivery,
         ) as (client, tokens, _):
             for context, token, outcome in zip(
                 (before, after, repeated),
@@ -245,7 +309,8 @@ def test_case_result_fault_profiles(
                 ("NOT_FOUND", "FOUND", "NOT_FOUND"),
                 strict=True,
             ):
-                with pytest.raises(ResponseLost):
+                posts, checks = delivery.posts, delivery.checks
+                with pytest.raises(httpx.ReadError):
                     await post_case(client, "unknown", token=token)
                 prior = snapshot(migrated_db)
                 found = await result(client, token, "unknown")
@@ -259,19 +324,39 @@ def test_case_result_fault_profiles(
                 assert snapshot(migrated_db) == prior
                 assert profiles.calls[(context, "before_commit")] == 1
                 assert profiles.calls[(context, "before_result_read")] == 1
+                assert (delivery.posts - posts, delivery.checks - checks) == (1, 1)
+            assert delivery.statuses == [500, 201, 500]
+            peer_case = await post_case(client, "unknown", token=tokens[4])
+            assert peer_case.status_code == 201
             cursor = snapshot(migrated_db)
-            failures = await asyncio.gather(
-                result(client, tokens[1], "unknown"),
-                result(
-                    client, tokens[3], "unknown", RESULT + "?fault=before_result_read"
-                ),
-                result(client, tokens[0], "unknown"),
-            )
-            assert [(reply.status_code, reply.json()) for reply in failures] == [
-                (503, UNAVAILABLE),
-                (200, ABSENT),
-                (200, ABSENT),
-            ]
+            faulted = asyncio.create_task(result(client, tokens[1], "unknown"))
+            try:
+                await asyncio.wait_for(entered.wait(), 1)
+                peer_reply = await result(client, tokens[4], "unknown")
+                assert (peer_reply.status_code, peer_reply.json()) == (
+                    200,
+                    {"outcome": "FOUND", "case": peer_case.json()},
+                )
+                attempted_control = await client.request(
+                    "GET",
+                    RESULT + "?fault=before_result_read",
+                    headers={
+                        **authorization(tokens[3]),
+                        "Idempotency-Key": "unknown",
+                        "X-Test-Fault": "before_result_read",
+                    },
+                    json={"fault": "before_result_read"},
+                )
+                assert (attempted_control.status_code, attempted_control.json()) == (
+                    200,
+                    ABSENT,
+                )
+                assert not faulted.done()
+            finally:
+                release.set()
+                await asyncio.gather(faulted, return_exceptions=True)
+            failed = faulted.result()
+            assert (failed.status_code, failed.json()) == (503, UNAVAILABLE)
             recovered = await result(client, tokens[1], "unknown")
             assert (
                 recovered.status_code == 200 and recovered.json()["outcome"] == "FOUND"
@@ -289,7 +374,7 @@ def test_case_result_database_and_pool_recovery(
     async def exercise() -> None:
         owner = seeded(migrated_db)
         caplog.set_level(logging.INFO, logger="app.logistics_cases")
-        async with result_app(migrated_db, monkeypatch, owner, result_timeout=3) as (
+        async with result_app(migrated_db, monkeypatch, owner, result_timeout=0.4) as (
             client,
             (token,),
             store,
@@ -297,8 +382,14 @@ def test_case_result_database_and_pool_recovery(
             before = snapshot(migrated_db)
             engine = store.database.engine
             async with engine.connect(), engine.connect():
+                started = time.monotonic()
                 reply = await result(client, token, "unconfirmed-synthetic")
                 assert (reply.status_code, reply.json()) == (503, UNAVAILABLE)
+                assert (
+                    0.35
+                    <= time.monotonic() - started
+                    < store.database.settings.pool_timeout
+                )
             assert cast(AsyncAdaptedQueuePool, engine.pool).checkedout() == 0
             recovered = await result(client, token, "unconfirmed-synthetic")
             assert (recovered.status_code, recovered.json()) == (200, ABSENT)

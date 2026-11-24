@@ -84,8 +84,10 @@ def test_case_isolation_and_reset(
 
             with monkeypatch.context() as patch:
                 patch.setattr(AsyncConnection, "execution_options", verify_idle)
-                for _ in range(2):
-                    async with database.transaction(case_write=True) as connection:
+                for write in (True, False):
+                    async with database.transaction(
+                        case_write=write, read_committed=not write
+                    ) as connection:
                         assert (
                             await connection.exec_driver_sql(
                                 "SHOW transaction_isolation"
