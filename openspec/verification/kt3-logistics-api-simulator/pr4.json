@@ -1,0 +1,432 @@
+{
+  "change_id": "kt3-logistics-api-simulator",
+  "issue": 14,
+  "kind": "implementation",
+  "scope": [
+    "backend/Dockerfile",
+    "backend/app/case_store.py",
+    "backend/app/database.py",
+    "backend/app/logistics_cases.py",
+    "backend/app/logistics_faults.py",
+    "backend/app/main.py",
+    "backend/tests/test_kt3_case_result.py",
+    "backend/tests/test_kt3_case_transactions.py",
+    "backend/tests/test_kt3_runtime_logs.py",
+    "openspec/changes/kt3-logistics-api-simulator/tasks.md",
+    "openspec/verification/kt3-logistics-api-simulator/pr4.json"
+  ],
+  "tasks": [
+    "4.1",
+    "4.2",
+    "4.3",
+    "4.4",
+    "4.5",
+    "4.6",
+    "4.7",
+    "4.8"
+  ],
+  "targets": {
+    "sc001": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-001",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc002": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-002",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc003": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-003",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc004": {
+      "requirement": "AC-LAS-002",
+      "scenario": "SC-LAS-004",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc005": {
+      "requirement": "AC-LAS-002",
+      "scenario": "SC-LAS-005",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc006": {
+      "requirement": "AC-LAS-003",
+      "scenario": "SC-LAS-006",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc007": {
+      "requirement": "AC-LAS-003",
+      "scenario": "SC-LAS-007",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc008": {
+      "requirement": "AC-LAS-003",
+      "scenario": "SC-LAS-008",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc009": {
+      "requirement": "AC-LAS-004",
+      "scenario": "SC-LAS-009",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc010": {
+      "requirement": "AC-LAS-004",
+      "scenario": "SC-LAS-010",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc011": {
+      "requirement": "AC-LAS-004",
+      "scenario": "SC-LAS-011",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc012": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-012",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc013": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-013",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc014": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-014",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc015": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-015",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc016": {
+      "requirement": "AC-LAS-006",
+      "scenario": "SC-LAS-016",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc017": {
+      "requirement": "AC-LAS-007",
+      "scenario": "SC-LAS-017",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc018": {
+      "requirement": "AC-LAS-007",
+      "scenario": "SC-LAS-018",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc019": {
+      "requirement": "AC-LAS-007",
+      "scenario": "SC-LAS-019",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc020": {
+      "requirement": "AC-LAS-008",
+      "scenario": "SC-LAS-020",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc021": {
+      "requirement": "AC-LAS-008",
+      "scenario": "SC-LAS-021",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc022": {
+      "requirement": "AC-LAS-008",
+      "scenario": "SC-LAS-022",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    }
+  },
+  "links": [
+    {
+      "task": "4.1",
+      "target": "sc004",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.1",
+      "target": "sc017",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.1",
+      "target": "sc018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.2",
+      "target": "sc018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_database_and_pool_recovery"
+    },
+    {
+      "task": "4.2",
+      "target": "sc019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_database_and_pool_recovery"
+    },
+    {
+      "task": "4.3",
+      "target": "sc005",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.3",
+      "target": "sc020",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.3",
+      "target": "sc021",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.3",
+      "target": "sc022",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.4",
+      "target": "sc018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_before_commit"
+    },
+    {
+      "task": "4.5",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.5",
+      "target": "sc017",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.5",
+      "target": "sc020",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.6",
+      "target": "sc019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.6",
+      "target": "sc020",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.6",
+      "target": "sc021",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.6",
+      "target": "sc022",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.7",
+      "target": "sc017",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_phase_measurements"
+    },
+    {
+      "task": "4.7",
+      "target": "sc018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_phase_measurements"
+    },
+    {
+      "task": "4.7",
+      "target": "sc019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_phase_measurements"
+    },
+    {
+      "task": "4.7",
+      "target": "sc022",
+      "test": "backend/tests/test_kt3_runtime_logs.py::test_kt3_runtime_safe_logs"
+    },
+    {
+      "task": "4.8",
+      "target": "sc001",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
+    },
+    {
+      "task": "4.8",
+      "target": "sc001",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc002",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
+    },
+    {
+      "task": "4.8",
+      "target": "sc002",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc003",
+      "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "4.8",
+      "target": "sc003",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc004",
+      "test": "backend/tests/test_kt3_auth.py::test_kt3_auth_scope_and_no_management"
+    },
+    {
+      "task": "4.8",
+      "target": "sc004",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc005",
+      "test": "backend/tests/test_permissions.py::test_api_grants_after_repeat"
+    },
+    {
+      "task": "4.8",
+      "target": "sc005",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "sc006",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "4.8",
+      "target": "sc007",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_projection_and_options"
+    },
+    {
+      "task": "4.8",
+      "target": "sc008",
+      "test": "backend/tests/test_kt3_order_reads.py::test_kt3_order_authorization_and_identical_404"
+    },
+    {
+      "task": "4.8",
+      "target": "sc009",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc010",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_and_internal_change_both_orders"
+    },
+    {
+      "task": "4.8",
+      "target": "sc010",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc011",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc011",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_malformed_json"
+    },
+    {
+      "task": "4.8",
+      "target": "sc012",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc013",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc013",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_competing_posts"
+    },
+    {
+      "task": "4.8",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_competing_posts"
+    },
+    {
+      "task": "4.8",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_rollback_and_commit_uncertainty"
+    },
+    {
+      "task": "4.8",
+      "target": "sc015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_cancelled_locks_and_open_transaction"
+    },
+    {
+      "task": "4.8",
+      "target": "sc016",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc017",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "sc017",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_before_commit"
+    },
+    {
+      "task": "4.8",
+      "target": "sc018",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
+      "target": "sc019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_database_and_pool_recovery"
+    },
+    {
+      "task": "4.8",
+      "target": "sc019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "sc020",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "sc021",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "sc022",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
+    },
+    {
+      "task": "4.8",
+      "target": "sc022",
+      "test": "backend/tests/test_kt3_runtime_logs.py::test_kt3_runtime_safe_logs"
+    },
+    {
+      "task": "4.7",
+      "target": "sc019",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_timeout_and_phase_measurement"
+    }
+  ]
+}

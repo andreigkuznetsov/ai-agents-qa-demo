@@ -13,6 +13,7 @@ from app.logistics_auth import (
     unauthenticated_response,
 )
 from app.logistics_cases import case_router
+from app.logistics_faults import FaultHook, no_fault
 from app.logistics_orders import order_router
 from app.order_store import OrderStore
 from app.readiness import Readiness
@@ -24,7 +25,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     readiness = Readiness(database)
     app.state.readiness = readiness
     app.state.order_store = OrderStore(database)
-    app.state.case_store = CaseStore(database)
+    app.state.case_store = CaseStore(database, app.state.case_fault)
     try:
         yield
     finally:
@@ -73,6 +74,8 @@ def create_app(
     context_by_digest: Mapping[str, LogisticsContext] | None = None,
     *,
     case_write_timeout: float | None = None,
+    case_result_timeout: float | None = None,
+    case_fault: FaultHook = no_fault,
 ) -> FastAPI:
     application = FastAPI(
         title="AI Agents QA Demo",
@@ -83,7 +86,10 @@ def create_app(
     )
     application.include_router(health_router)
     application.include_router(order_router(context_by_digest or {}))
-    application.include_router(case_router(context_by_digest or {}, case_write_timeout))
+    application.state.case_fault = case_fault
+    application.include_router(
+        case_router(context_by_digest or {}, case_write_timeout, case_result_timeout)
+    )
     application.add_exception_handler(Unauthenticated, unauthenticated_response)
     return application
 
