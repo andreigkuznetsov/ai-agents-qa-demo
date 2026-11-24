@@ -201,6 +201,16 @@ def _key_bytes(value: str) -> bytes | None:
     return encoded if len(encoded) <= 512 else None
 
 
+def _contains_secret(value: object, secrets: tuple[str, ...]) -> bool:
+    if isinstance(value, str):
+        return any(secret in value for secret in secrets)
+    if isinstance(value, Mapping):
+        return any(_contains_secret(item, secrets) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_secret(item, secrets) for item in value)
+    return False
+
+
 class ToolAdapter:
     def __init__(
         self,
@@ -234,6 +244,11 @@ class ToolAdapter:
         key: bytes | None = None,
         payload: dict[str, str] | None = None,
     ) -> tuple[int, T] | ToolFailure:
+        secrets = (
+            (self._context.bearer, key.decode("utf-8"))
+            if key is not None
+            else (self._context.bearer,)
+        )
         response = await self._http.request(
             method, path, self._context.bearer, key, payload
         )
@@ -243,7 +258,10 @@ class ToolAdapter:
         status = response.status
         try:
             if status == 200 or (method == "POST" and status == 201):
-                return status, view.validate_json(response.body)
+                projected = view.validate_json(response.body)
+                if _contains_secret(projected.model_dump(mode="json"), secrets):
+                    return self._unexpected(status, write=method == "POST")
+                return status, projected
             allowed = {401, 404}
             if method == "POST":
                 allowed.update({409, 422})
@@ -266,12 +284,18 @@ class ToolAdapter:
     ) -> ToolView | ToolFailure:
         if not isinstance(operation, str) or operation not in READ_OPERATIONS:
             return ToolFailure("TOOL_NOT_ALLOWED")
+        if not isinstance(arguments, Mapping):
+            return ToolFailure("INVALID_ARGUMENTS")
         try:
             if operation == Operation.GET_CASE:
                 case_id = CaseArgs.model_validate(arguments).case_id
+                if self._context.bearer.lower() in case_id:
+                    return ToolFailure("INVALID_ARGUMENTS")
                 return await self._get_case(case_id)
             order = OrderArgs.model_validate(arguments).order_id
         except ValidationError:
+            return ToolFailure("INVALID_ARGUMENTS")
+        if self._context.bearer in order:
             return ToolFailure("INVALID_ARGUMENTS")
 
         path = f"/orders/{_order_segment(order)}"
@@ -311,12 +335,17 @@ class ToolAdapter:
         self, arguments: Mapping[str, object], *, idempotency_key: str
     ) -> CreateCaseResult | ToolFailure:
         # A trusted caller supplies the existing operation key.
+        if not isinstance(arguments, Mapping):
+            return ToolFailure("INVALID_ARGUMENTS")
         try:
             args = CreateCaseArgs.model_validate(arguments)
         except ValidationError:
             return ToolFailure("INVALID_ARGUMENTS")
         key = _key_bytes(idempotency_key)
-        if key is None:
+        if key is None or _contains_secret(
+            (args.order_id, args.requested_date),
+            (self._context.bearer, idempotency_key),
+        ):
             return ToolFailure("INVALID_ARGUMENTS")
         payload = {
             "order_id": args.order_id,
@@ -337,12 +366,16 @@ class ToolAdapter:
     async def check_case_result(
         self, arguments: Mapping[str, object], *, idempotency_key: str
     ) -> CaseResult | ToolFailure:
+        if not isinstance(arguments, Mapping):
+            return ToolFailure("INVALID_ARGUMENTS")
         try:
             order = OrderArgs.model_validate(arguments).order_id
         except ValidationError:
             return ToolFailure("INVALID_ARGUMENTS")
         key = _key_bytes(idempotency_key)
-        if key is None:
+        if key is None or _contains_secret(
+            order, (self._context.bearer, idempotency_key)
+        ):
             return ToolFailure("INVALID_ARGUMENTS")
         path = f"/orders/{_order_segment(order)}/case-result"
         result = await self._request("GET", path, _RESULT, key=key)

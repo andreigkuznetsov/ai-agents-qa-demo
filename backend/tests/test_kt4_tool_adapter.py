@@ -334,3 +334,48 @@ def test_kt4_post_uncertainty_and_no_retry(
 
     asyncio.run(run())
     assert calls == ["/cases"]
+
+
+def test_kt4_rejects_secrets_reflected_in_known_fields(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO", logger="httpx2")
+    calls: list[str] = []
+
+    def send(request: httpx2.Request) -> httpx2.Response:
+        calls.append(request.url.path)
+        if request.url.path.startswith("/cases/"):
+            return httpx2.Response(
+                200, json={**case_body(), "order_id": f"echo-{BEARER}"}
+            )
+        return httpx2.Response(
+            200,
+            json={
+                "outcome": "FOUND",
+                "case": {**case_body(), "order_id": f"echo-{KEY}"},
+            },
+        )
+
+    async def run() -> None:
+        async with ToolAdapter(
+            context(), timeout=1, test_transport=httpx2.MockTransport(send)
+        ) as adapter:
+            assert await adapter.read(
+                "get_order", {"order_id": f"echo-{BEARER}"}
+            ) == ToolFailure("INVALID_ARGUMENTS")
+            assert await adapter.create_case(
+                {"order_id": f"echo-{KEY}", "requested_date": DAY}, idempotency_key=KEY
+            ) == ToolFailure("INVALID_ARGUMENTS")
+            assert await adapter.check_case_result(
+                {"order_id": f"echo-{KEY}"}, idempotency_key=KEY
+            ) == ToolFailure("INVALID_ARGUMENTS")
+            assert await adapter.read("get_case", {"case_id": CASE_ID}) == ToolFailure(
+                "UNEXPECTED_RESPONSE", 200
+            )
+            assert await adapter.check_case_result(
+                {"order_id": ORDER}, idempotency_key=KEY
+            ) == ToolFailure("UNEXPECTED_RESPONSE", 200)
+
+    asyncio.run(run())
+    assert calls == [f"/cases/{CASE_ID}", f"/orders/{ORDER}/case-result"]
+    assert BEARER not in caplog.text and KEY not in caplog.text
