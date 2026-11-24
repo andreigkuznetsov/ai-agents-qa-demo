@@ -203,7 +203,7 @@
     {
       "task": "3.6",
       "target": "sc009",
-      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_idempotency_key_utf8_limit"
     },
     {
       "task": "3.6",

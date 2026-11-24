@@ -1,7 +1,13 @@
+import asyncio
+import hashlib
+import secrets
+from typing import Any
 from uuid import UUID, uuid4
 
+import httpx2 as httpx
 import pytest
 from conftest import Project
+from sqlalchemy.ext.asyncio import AsyncConnection
 from test_kt3_fixtures import CLIENT_A, CLIENT_B, SAME_ORDER, create_run, initialize
 from test_kt3_order_reads import (
     MISSING,
@@ -14,6 +20,7 @@ from test_kt3_order_reads import (
 from app.case_store import OPERATION
 from app.logistics_auth import LogisticsContext
 from app.logistics_locks import order_lock
+from app.main import create_app
 
 PAYLOAD = {
     "order_id": SAME_ORDER,
@@ -21,6 +28,107 @@ PAYLOAD = {
     "operation_type": OPERATION,
 }
 CASE_FIELDS = {"case_id", "order_id", "requested_date", "operation_type", "status"}
+
+
+def test_case_idempotency_key_utf8_limit(
+    migrated_db: Project,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def exercise() -> None:
+        run = create_run(migrated_db)
+        assert initialize(migrated_db, run)
+        migrated_db.api_env(monkeypatch)
+        token = secrets.token_urlsafe(32)
+        app = create_app(
+            {
+                hashlib.sha256(token.encode()).hexdigest(): LogisticsContext(
+                    run, CLIENT_B
+                )
+            },
+            case_write_timeout=4,
+        )
+        auth = (b"authorization", f"Bearer {token}".encode())
+        header = b"idempotency-key"
+        ascii_key = b"a" * 512
+        unicode_key = ("é" * 256).encode("utf-8")
+        previous_key = b"previous-correct-key"
+        assert len(ascii_key) == len(unicode_key) == 512
+        before = snapshot(migrated_db)
+        statements = 0
+        execute = AsyncConnection.execute
+
+        async def count_sql(
+            conn: AsyncConnection, statement: Any, params: Any = None, **kwargs: Any
+        ) -> Any:
+            nonlocal statements
+            statements += 1
+            return await execute(conn, statement, params, **kwargs)
+
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://synthetic-test",
+            ) as client,
+        ):
+            with monkeypatch.context() as patch:
+                patch.setattr(AsyncConnection, "execute", count_sql)
+                for values in (
+                    [],
+                    [b""],
+                    [b" "],
+                    [b"\xff"],
+                    [b"a\x00b"],
+                    [ascii_key + b"x"],
+                    [unicode_key + b"x"],
+                    [b"one", b"two"],
+                ):
+                    response = await client.post(
+                        "/cases",
+                        headers=[auth, *((header, value) for value in values)],
+                        json=PAYLOAD,
+                    )
+                    assert (response.status_code, response.content) == (
+                        422,
+                        b'{"error":{"code":"VALIDATION_ERROR"}}',
+                    )
+                unauthorized = await client.post(
+                    "/cases", headers=[(header, ascii_key + b"x")], json=PAYLOAD
+                )
+                assert (unauthorized.status_code, unauthorized.json()) == (
+                    401,
+                    {"error": {"code": "UNAUTHENTICATED"}},
+                )
+                assert statements == 0
+            assert snapshot(migrated_db) == before
+
+            case_id = None
+            for key in (previous_key, ascii_key, unicode_key):
+                first = await client.post(
+                    "/cases", headers=[auth, (header, key)], json=PAYLOAD
+                )
+                assert first.status_code == (201 if case_id is None else 200)
+                case_id = case_id or first.json()["case_id"]
+                assert first.json()["case_id"] == case_id
+                replay = await client.post(
+                    "/cases", headers=[auth, (header, key)], json=PAYLOAD
+                )
+                assert (replay.status_code, replay.json()) == (200, first.json())
+
+        with migrated_db.db() as observer:
+            rows = observer.execute(
+                "SELECT request_key, octet_length(request_key), case_id::text "
+                "FROM qa.las_idempotency_keys WHERE run_id=%s AND client_id=%s",
+                (run, CLIENT_B),
+            ).fetchall()
+            assert set(rows) == {
+                (key.decode("utf-8"), len(key), case_id)
+                for key in (previous_key, ascii_key, unicode_key)
+            }
+        assert "previous-correct-key" not in caplog.text and token not in caplog.text
+
+    asyncio.run(exercise())
 
 
 def test_case_http_contract(

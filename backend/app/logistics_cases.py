@@ -17,6 +17,7 @@ from app.logistics_responses import error_response, not_found
 POST_PATH = "/cases"
 LIST_PATH = "/orders/{order_id}/cases"
 CASE_PATH = "/cases/{case_id}"
+MAX_IDEMPOTENCY_KEY_BYTES = 512
 logger = logging.getLogger(__name__)
 
 
@@ -42,10 +43,24 @@ def is_database_text(value: str) -> bool:
     )
 
 
-async def case_input(request: Request) -> tuple[str, date, str]:
-    keys = request.headers.getlist("idempotency-key")
-    if len(keys) != 1 or not keys[0].strip() or not is_database_text(keys[0]):
+def read_idempotency_key(request: Request) -> str:
+    values = [
+        value
+        for name, value in request.headers.raw
+        if name.lower() == b"idempotency-key"
+    ]
+    if len(values) != 1 or len(values[0]) > MAX_IDEMPOTENCY_KEY_BYTES:
         raise ValueError("invalid idempotency key")
+    key = values[0].decode("utf-8")
+    if not key.strip() or any(
+        ord(character) < 32 or character == "\x7f" for character in key
+    ):
+        raise ValueError("invalid idempotency key")
+    return key
+
+
+async def case_input(request: Request) -> tuple[str, date, str]:
+    key = read_idempotency_key(request)
     payload = await request.json()
     if not isinstance(payload, dict) or set(payload) != {
         "order_id",
@@ -64,7 +79,7 @@ async def case_input(request: Request) -> tuple[str, date, str]:
     requested_date = date.fromisoformat(day)
     if requested_date.isoformat() != day:
         raise ValueError("invalid date format")
-    return order_id, requested_date, keys[0]
+    return order_id, requested_date, key
 
 
 def case_router(
