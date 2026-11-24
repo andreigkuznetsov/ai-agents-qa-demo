@@ -141,17 +141,47 @@ def test_case_result_contract(
     async def exercise() -> None:
         owner, neighbor = seeded(migrated_db), seeded(migrated_db)
         other_client = LogisticsContext(owner.run_id, CLIENT_A)
+        neighbor_case_owner = LogisticsContext(neighbor.run_id, CLIENT_A)
         add_order(migrated_db, owner.run_id, CLIENT_B, "owner-only")
         async with result_app(
-            migrated_db, monkeypatch, owner, other_client, neighbor
-        ) as (client, (a, other, b), _):
+            migrated_db, monkeypatch, owner, other_client, neighbor, neighbor_case_owner
+        ) as (client, (a, other, b, b_case_owner), _):
+            owner_seed = await client.get(
+                f"/orders/{SAME_ORDER}/cases", headers=authorization(other)
+            )
+            neighbor_seed = await client.get(
+                f"/orders/{SAME_ORDER}/cases", headers=authorization(b_case_owner)
+            )
+            assert owner_seed.status_code == neighbor_seed.status_code == 200
+            (owner_case,) = owner_seed.json()["cases"]
+            (neighbor_case,) = neighbor_seed.json()["cases"]
+            assert owner_case["case_id"] != neighbor_case["case_id"]
+            assert {**owner_case, "case_id": None} == {**neighbor_case, "case_id": None}
+            assert owner_case["status"] == "OPEN"
+            no_seed = await client.get(
+                f"/orders/{SAME_ORDER}/cases", headers=authorization(a)
+            )
+            assert (no_seed.status_code, no_seed.json()) == (200, {"cases": []})
+            neighbor_before = tuple(
+                case_rows(migrated_db, neighbor.run_id, scope)
+                for scope in (CLIENT_A, CLIENT_B)
+            )
             first, second = await asyncio.gather(
                 post_case(client, "original", token=a),
                 post_case(client, "alias", token=a),
             )
             assert sorted((first.status_code, second.status_code)) == [200, 201]
             assert second.json() == first.json()
+            assert (
+                tuple(
+                    case_rows(migrated_db, neighbor.run_id, scope)
+                    for scope in (CLIENT_A, CLIENT_B)
+                )
+                == neighbor_before
+            )
             before = snapshot(migrated_db)
+            assert not initialize(migrated_db, owner.run_id)
+            assert snapshot(migrated_db) == before
             for key in ("original", "alias"):
                 found = await result(client, a, key)
                 assert (found.status_code, found.json()) == (
@@ -242,7 +272,10 @@ def test_case_result_before_commit(
             await asyncio.wait_for(release.wait(), 3)
 
         profiles = Profiles({(owner, "before_commit", 1): hold})
-        async with result_app(migrated_db, monkeypatch, owner, fault=profiles) as (
+        delivery = DeliveryFault()
+        async with result_app(
+            migrated_db, monkeypatch, owner, fault=profiles, delivery=delivery
+        ) as (
             client,
             (token,),
             store,
@@ -262,6 +295,7 @@ def test_case_result_before_commit(
             assert post.result().status_code == 201
             cases, keys = case_rows(migrated_db, owner.run_id)
             assert len(cases) == 1 and keys == [("pending", cases[0][0])]
+            assert (delivery.posts, delivery.checks) == (1, 1)
             assert profiles.calls == {
                 (owner, "before_commit"): 1,
                 (owner, "after_commit"): 1,
@@ -275,8 +309,8 @@ def test_case_result_fault_profiles(
     migrated_db: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def exercise() -> None:
-        before, after, repeated, peer = (seeded(migrated_db) for _ in range(4))
-        same_run_client = LogisticsContext(after.run_id, CLIENT_A)
+        before, after, repeated, peer, blocked = (seeded(migrated_db) for _ in range(5))
+        same_run_client = LogisticsContext(blocked.run_id, CLIENT_A)
         delivery = DeliveryFault()
         entered, release = asyncio.Event(), asyncio.Event()
 
@@ -289,7 +323,8 @@ def test_case_result_fault_profiles(
             (before, "before_commit", 1): delivery.abort_before_commit,
             (repeated, "before_commit", 1): delivery.abort_before_commit,
             (after, "after_commit", 1): delivery.drop_after_commit,
-            (after, "before_result_read", 2): coordinated_unavailability,
+            (blocked, "after_commit", 1): delivery.drop_after_commit,
+            (blocked, "before_result_read", 1): coordinated_unavailability,
         }
         profiles = Profiles(await_faults)
         async with result_app(
@@ -300,6 +335,7 @@ def test_case_result_fault_profiles(
             repeated,
             same_run_client,
             peer,
+            blocked,
             fault=profiles,
             delivery=delivery,
         ) as (client, tokens, _):
@@ -328,8 +364,14 @@ def test_case_result_fault_profiles(
             assert delivery.statuses == [500, 201, 500]
             peer_case = await post_case(client, "unknown", token=tokens[4])
             assert peer_case.status_code == 201
+            posts = delivery.posts
+            with pytest.raises(httpx.ReadError):
+                await post_case(client, "unknown", token=tokens[5])
+            assert delivery.statuses == [500, 201, 500, 201]
+            cases, keys = case_rows(migrated_db, blocked.run_id)
+            assert len(cases) == 1 and keys == [("unknown", cases[0][0])]
             cursor = snapshot(migrated_db)
-            faulted = asyncio.create_task(result(client, tokens[1], "unknown"))
+            faulted = asyncio.create_task(result(client, tokens[5], "unknown"))
             try:
                 await asyncio.wait_for(entered.wait(), 1)
                 peer_reply = await result(client, tokens[4], "unknown")
@@ -357,11 +399,11 @@ def test_case_result_fault_profiles(
                 await asyncio.gather(faulted, return_exceptions=True)
             failed = faulted.result()
             assert (failed.status_code, failed.json()) == (503, UNAVAILABLE)
-            recovered = await result(client, tokens[1], "unknown")
-            assert (
-                recovered.status_code == 200 and recovered.json()["outcome"] == "FOUND"
-            )
+            assert profiles.calls[(blocked, "before_result_read")] == 1
+            assert delivery.posts - posts == 1
             assert snapshot(migrated_db) == cursor
+            recovered = await result(client, tokens[5], "independent")
+            assert (recovered.status_code, recovered.json()) == (200, ABSENT)
 
     asyncio.run(exercise())
 

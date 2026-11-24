@@ -250,13 +250,28 @@
     },
     {
       "task": "4.8",
+      "target": "sc001",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
       "target": "sc002",
       "test": "backend/tests/test_kt3_fixtures.py::test_kt3_load_is_reproducible_and_scoped"
     },
     {
       "task": "4.8",
+      "target": "sc002",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
+    },
+    {
+      "task": "4.8",
       "target": "sc003",
       "test": "backend/tests/test_kt3_fixtures.py::test_kt3_concurrent_repeat_and_rollback"
+    },
+    {
+      "task": "4.8",
+      "target": "sc003",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_contract"
     },
     {
       "task": "4.8",
@@ -382,6 +397,11 @@
       "task": "4.8",
       "target": "sc019",
       "test": "backend/tests/test_kt3_case_result.py::test_case_result_database_and_pool_recovery"
+    },
+    {
+      "task": "4.8",
+      "target": "sc019",
+      "test": "backend/tests/test_kt3_case_result.py::test_case_result_fault_profiles"
     },
     {
       "task": "4.8",
