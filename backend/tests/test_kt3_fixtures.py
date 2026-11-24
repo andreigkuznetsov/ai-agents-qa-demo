@@ -15,11 +15,11 @@ from support.kt3_fixture_loader import (
     FIXTURE,
     FIXTURE_VERSION,
     FixtureError,
-    initialization_lock,
     load_fixture,
-    order_lock,
     read_bundle,
 )
+
+from app.logistics_locks import initialization_lock, order_lock
 
 CLIENT_A = "demo-client-a"
 CLIENT_B = "demo-client-b"

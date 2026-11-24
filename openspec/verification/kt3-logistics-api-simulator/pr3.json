@@ -1,0 +1,319 @@
+{
+  "change_id": "kt3-logistics-api-simulator",
+  "issue": 14,
+  "kind": "implementation",
+  "scope": [
+    "backend/app/case_store.py",
+    "backend/app/database.py",
+    "backend/app/logistics_cases.py",
+    "backend/app/logistics_locks.py",
+    "backend/app/logistics_orders.py",
+    "backend/app/logistics_responses.py",
+    "backend/app/main.py",
+    "backend/app/migrate.py",
+    "backend/migrations/versions/0003_las_cases.py",
+    "backend/tests/conftest.py",
+    "backend/tests/support/kt3_fixture_loader.py",
+    "backend/tests/test_kt3_case_concurrency.py",
+    "backend/tests/test_kt3_case_contract.py",
+    "backend/tests/test_kt3_case_transactions.py",
+    "backend/tests/test_kt3_fixtures.py",
+    "backend/tests/test_kt3_order_reads.py",
+    "backend/tests/test_migrations.py",
+    "backend/tests/test_permissions.py",
+    "openspec/verification/kt3-logistics-api-simulator/pr3.json"
+  ],
+  "tasks": [
+    "3.1",
+    "3.2",
+    "3.3",
+    "3.4",
+    "3.5",
+    "3.6",
+    "3.7",
+    "3.8",
+    "3.9",
+    "3.10",
+    "3.11",
+    "3.12",
+    "3.13",
+    "3.14",
+    "3.15",
+    "3.16",
+    "3.17"
+  ],
+  "targets": {
+    "sc009": {
+      "requirement": "AC-LAS-004",
+      "scenario": "SC-LAS-009",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc014": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-014",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc015": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-015",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc005": {
+      "requirement": "AC-LAS-002",
+      "scenario": "SC-LAS-005",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc016": {
+      "requirement": "AC-LAS-006",
+      "scenario": "SC-LAS-016",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc001": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-001",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc002": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-002",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc003": {
+      "requirement": "AC-LAS-001",
+      "scenario": "SC-LAS-003",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc010": {
+      "requirement": "AC-LAS-004",
+      "scenario": "SC-LAS-010",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc004": {
+      "requirement": "AC-LAS-002",
+      "scenario": "SC-LAS-004",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc011": {
+      "requirement": "AC-LAS-004",
+      "scenario": "SC-LAS-011",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc012": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-012",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    },
+    "sc013": {
+      "requirement": "AC-LAS-005",
+      "scenario": "SC-LAS-013",
+      "spec": "openspec/changes/kt3-logistics-api-simulator/specs/logistics-api-simulator/spec.md"
+    }
+  },
+  "links": [
+    {
+      "task": "3.1",
+      "target": "sc009",
+      "test": "backend/tests/test_migrations.py::test_kt3_case_constraints"
+    },
+    {
+      "task": "3.1",
+      "target": "sc014",
+      "test": "backend/tests/test_migrations.py::test_kt3_case_constraints"
+    },
+    {
+      "task": "3.1",
+      "target": "sc015",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "3.2",
+      "target": "sc005",
+      "test": "backend/tests/test_permissions.py::test_api_grants_after_repeat"
+    },
+    {
+      "task": "3.2",
+      "target": "sc009",
+      "test": "backend/tests/test_permissions.py::test_api_grants_after_repeat"
+    },
+    {
+      "task": "3.2",
+      "target": "sc015",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "3.2",
+      "target": "sc016",
+      "test": "backend/tests/test_permissions.py::test_api_grants_after_repeat"
+    },
+    {
+      "task": "3.3",
+      "target": "sc001",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "3.3",
+      "target": "sc002",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.3",
+      "target": "sc003",
+      "test": "backend/tests/test_migrations.py::test_kt3_upgrade_rollback_and_recovery"
+    },
+    {
+      "task": "3.3",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.4",
+      "target": "sc009",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_isolation_and_reset"
+    },
+    {
+      "task": "3.4",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_isolation_and_reset"
+    },
+    {
+      "task": "3.4",
+      "target": "sc015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_isolation_and_reset"
+    },
+    {
+      "task": "3.5",
+      "target": "sc010",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_and_internal_change_both_orders"
+    },
+    {
+      "task": "3.5",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_competing_posts"
+    },
+    {
+      "task": "3.5",
+      "target": "sc015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_cancelled_locks_and_open_transaction"
+    },
+    {
+      "task": "3.6",
+      "target": "sc004",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.6",
+      "target": "sc009",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.6",
+      "target": "sc011",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.7",
+      "target": "sc009",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.7",
+      "target": "sc010",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.7",
+      "target": "sc015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_rollback_and_commit_uncertainty"
+    },
+    {
+      "task": "3.8",
+      "target": "sc012",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.8",
+      "target": "sc013",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.9",
+      "target": "sc010",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.9",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.10",
+      "target": "sc013",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_competing_posts"
+    },
+    {
+      "task": "3.10",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_competing_posts"
+    },
+    {
+      "task": "3.11",
+      "target": "sc010",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_and_internal_change_both_orders"
+    },
+    {
+      "task": "3.11",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_concurrency.py::test_case_and_internal_change_both_orders"
+    },
+    {
+      "task": "3.12",
+      "target": "sc015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_rollback_and_commit_uncertainty"
+    },
+    {
+      "task": "3.13",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_cancelled_locks_and_open_transaction"
+    },
+    {
+      "task": "3.13",
+      "target": "sc015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_cancelled_locks_and_open_transaction"
+    },
+    {
+      "task": "3.14",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_cancelled_locks_and_open_transaction"
+    },
+    {
+      "task": "3.14",
+      "target": "sc015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_rollback_and_commit_uncertainty"
+    },
+    {
+      "task": "3.15",
+      "target": "sc015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_rollback_and_commit_uncertainty"
+    },
+    {
+      "task": "3.16",
+      "target": "sc004",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.16",
+      "target": "sc016",
+      "test": "backend/tests/test_kt3_case_contract.py::test_case_http_contract"
+    },
+    {
+      "task": "3.17",
+      "target": "sc014",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_timeout_and_phase_measurement"
+    },
+    {
+      "task": "3.17",
+      "target": "sc015",
+      "test": "backend/tests/test_kt3_case_transactions.py::test_case_timeout_and_phase_measurement"
+    }
+  ]
+}

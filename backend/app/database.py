@@ -79,6 +79,10 @@ class Settings:
         )
 
 
+class CommitOutcomeUnknown(RuntimeError):
+    """The API did not receive confirmation of a case commit."""
+
+
 class Database:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -113,14 +117,25 @@ class Database:
         return task
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[AsyncConnection]:
+    async def transaction(
+        self, *, case_write: bool = False
+    ) -> AsyncIterator[AsyncConnection]:
         connection = await self.engine.connect()
         cancelled = False
+        invalidate = False
         try:
+            if case_write:
+                await connection.execution_options(isolation_level="READ COMMITTED")
             transaction = await connection.begin()
             await self.assert_compatible(connection)
             yield connection
-            await transaction.commit()
+            try:
+                await transaction.commit()
+            except Exception:
+                if not case_write:
+                    raise
+                invalidate = True
+                raise CommitOutcomeUnknown("case commit not confirmed") from None
         except asyncio.CancelledError:
             cancelled = True
             self._invalidating.add(
@@ -129,7 +144,9 @@ class Database:
             raise
         finally:
             if not cancelled:
-                await asyncio.shield(self._own(self._release(connection)))
+                await asyncio.shield(
+                    self._own(self._release(connection, invalidate=invalidate))
+                )
 
     async def assert_compatible(self, connection: AsyncConnection) -> None:
         if await connection.run_sync(current_revisions) != (self.head,):

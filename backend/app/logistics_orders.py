@@ -2,13 +2,13 @@ import logging
 from collections.abc import Mapping
 from datetime import date
 from typing import Annotated, Literal
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.logistics_auth import LogisticsContext, logistics_auth
+from app.logistics_responses import not_found
 from app.order_store import OrderStatus, OrderStore
 
 ORDER_PATH = "/orders/{order_id}"
@@ -29,12 +29,6 @@ class DeliveryOptionsResponse(BaseModel):
     dates: list[date]
 
 
-def not_found(route_template: str) -> JSONResponse:
-    code = "RESOURCE_NOT_FOUND"
-    logger.info("route=%s code=%s correlation_id=%s", route_template, code, uuid4())
-    return JSONResponse({"error": {"code": code}}, status_code=404)
-
-
 def order_router(context_by_digest: Mapping[str, LogisticsContext]) -> APIRouter:
     router = APIRouter()
     authenticate = logistics_auth(context_by_digest)
@@ -48,7 +42,7 @@ def order_router(context_by_digest: Mapping[str, LogisticsContext]) -> APIRouter
         store: OrderStore = request.app.state.order_store
         order = await store.read(context, order_id)
         if order is None:
-            return not_found(ORDER_PATH)
+            return not_found(ORDER_PATH, logger)
         return OrderResponse(
             order_id=order.order_id,
             status=order.status,
@@ -64,7 +58,7 @@ def order_router(context_by_digest: Mapping[str, LogisticsContext]) -> APIRouter
         store: OrderStore = request.app.state.order_store
         options = await store.delivery_options(context, order_id)
         if options is None:
-            return not_found(OPTIONS_PATH)
+            return not_found(OPTIONS_PATH, logger)
         reason: Literal["ORDER_TRANSFER_BLOCKED", "NO_AVAILABLE_DATES"] | None = None
         if options.status == "TRANSFER_BLOCKED":
             reason = "ORDER_TRANSFER_BLOCKED"

@@ -3,6 +3,7 @@ from uuid import uuid4
 import psycopg
 import pytest
 from conftest import Project
+from test_kt3_fixtures import CLIENT_A, SAME_ORDER, create_run, initialize
 
 FORBIDDEN = [
     "CREATE SCHEMA api_denied",
@@ -30,13 +31,36 @@ DOMAIN_FORBIDDEN = [
     "UPDATE qa.las_delivery_dates SET delivery_date='2026-11-26'",
     "DELETE FROM qa.las_delivery_dates",
     "ALTER TABLE qa.las_orders ADD COLUMN api_denied integer",
+    "UPDATE qa.las_cases SET status='OPEN'",
+    "DELETE FROM qa.las_cases",
+    "TRUNCATE qa.las_cases, qa.las_idempotency_keys",
+    "ALTER TABLE qa.las_cases ADD COLUMN api_denied integer",
+    "UPDATE qa.las_idempotency_keys SET request_key='denied'",
+    "DELETE FROM qa.las_idempotency_keys",
+    "TRUNCATE qa.las_idempotency_keys",
 ]
 
 
 def assert_las_privileges(project: Project) -> None:
+    run_id, case_id = create_run(project), uuid4()
+    assert initialize(project, run_id)
     with project.db("api") as api:
         api.execute("SELECT * FROM qa.las_orders")
         api.execute("SELECT * FROM qa.las_delivery_dates")
+        api.execute(
+            "INSERT INTO qa.las_cases VALUES (%s,%s,%s,%s,'2026-11-27','DELIVERY_RESCHEDULE','OPEN')",
+            (run_id, CLIENT_A, case_id, SAME_ORDER),
+        )
+        api.execute(
+            "INSERT INTO qa.las_idempotency_keys VALUES (%s,%s,'DELIVERY_RESCHEDULE','acl-key',%s,'2026-11-27',%s)",
+            (run_id, CLIENT_A, SAME_ORDER, case_id),
+        )
+        assert api.execute(
+            "SELECT case_id FROM qa.las_cases WHERE case_id=%s", (case_id,)
+        ).fetchone() == (case_id,)
+        assert api.execute(
+            "SELECT case_id FROM qa.las_idempotency_keys WHERE case_id=%s", (case_id,)
+        ).fetchone() == (case_id,)
         for sql in DOMAIN_FORBIDDEN:
             with (
                 pytest.raises(psycopg.errors.InsufficientPrivilege) as denied,

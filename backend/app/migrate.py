@@ -44,6 +44,7 @@ SELECT
 
 KT2_REVISION = "0001_runs"
 FIXTURES_REVISION = "0002_las_fixtures"
+CASES_REVISION = "0003_las_cases"
 API_GRANTS = {
     "runs": ("SELECT", "INSERT"),
     "alembic_version": ("SELECT",),
@@ -51,11 +52,14 @@ API_GRANTS = {
     "las_run_clients": (),
     "las_orders": ("SELECT",),
     "las_delivery_dates": ("SELECT",),
+    "las_cases": ("SELECT", "INSERT"),
+    "las_idempotency_keys": ("SELECT", "INSERT"),
 }
 REVISION_TABLES = {
     (): (),
     (KT2_REVISION,): ("runs", "alembic_version"),
-    (FIXTURES_REVISION,): tuple(API_GRANTS),
+    (FIXTURES_REVISION,): tuple(API_GRANTS)[:-2],
+    (CASES_REVISION,): tuple(API_GRANTS),
 }
 TABLE_PRIVILEGES = (
     "SELECT",
@@ -99,6 +103,24 @@ COLUMNS = {
         ("order_id", "text", "C", None),
         ("delivery_date", "date", None, None),
     ),
+    "las_cases": (
+        ("run_id", "uuid", None, None),
+        ("client_id", "text", "C", None),
+        ("case_id", "uuid", None, None),
+        ("order_id", "text", "C", None),
+        ("requested_date", "date", None, None),
+        ("operation_type", "text", "default", None),
+        ("status", "text", "default", None),
+    ),
+    "las_idempotency_keys": (
+        ("run_id", "uuid", None, None),
+        ("client_id", "text", "C", None),
+        ("operation_type", "text", "default", None),
+        ("request_key", "text", "C", None),
+        ("order_id", "text", "C", None),
+        ("requested_date", "date", None, None),
+        ("case_id", "uuid", None, None),
+    ),
 }
 PRIMARY_KEYS = {
     "runs": ("runs_pkey", "run_id"),
@@ -110,6 +132,18 @@ PRIMARY_KEYS = {
         "las_delivery_dates_pkey",
         "run_id, client_id, order_id, delivery_date",
     ),
+    "las_cases": ("las_cases_pkey", "run_id, client_id, case_id"),
+    "las_idempotency_keys": (
+        "las_idempotency_keys_pkey",
+        "run_id, client_id, operation_type, request_key",
+    ),
+}
+BUSINESS_KEY = "run_id, client_id, order_id, requested_date, operation_type"
+CASE_REFERENCE = f"{BUSINESS_KEY}, case_id"
+CASE_INDEXES = {
+    "las_cases_business_key",
+    "las_cases_reference_key",
+    "las_keys_case_idx",
 }
 OTHER_CONSTRAINTS = {
     "runs": {
@@ -145,6 +179,25 @@ OTHER_CONSTRAINTS = {
             "FOREIGN KEY (run_id, client_id, order_id) REFERENCES qa.las_orders(run_id, client_id, order_id)",
         ),
     },
+    "las_cases": {
+        (
+            "las_cases_order_fk",
+            "FOREIGN KEY (run_id, client_id, order_id) REFERENCES qa.las_orders(run_id, client_id, order_id)",
+        ),
+        ("las_cases_business_key", f"UNIQUE ({BUSINESS_KEY})"),
+        ("las_cases_reference_key", f"UNIQUE ({CASE_REFERENCE})"),
+        (
+            "las_cases_operation",
+            "CHECK ((operation_type = 'DELIVERY_RESCHEDULE'::text))",
+        ),
+        ("las_cases_status", "CHECK ((status = 'OPEN'::text))"),
+    },
+    "las_idempotency_keys": {
+        (
+            "las_keys_case_fk",
+            f"FOREIGN KEY ({CASE_REFERENCE}) REFERENCES qa.las_cases({CASE_REFERENCE})",
+        ),
+    },
 }
 
 
@@ -157,6 +210,8 @@ def _validate_catalog(connection: Connection, tables: tuple[str, ...]) -> None:
     """)
     expected = {(table, "r", True) for table in tables}
     expected.update((PRIMARY_KEYS[table][0], "i", True) for table in tables)
+    if "las_cases" in tables:
+        expected.update((name, "i", True) for name in CASE_INDEXES)
     if set(map(tuple, objects)) != expected:
         raise RuntimeError("unexpected PostgreSQL objects or ownership")
     columns = connection.exec_driver_sql("""
@@ -187,6 +242,17 @@ def _validate_catalog(connection: Connection, tables: tuple[str, ...]) -> None:
         )
     if set(map(tuple, constraints)) != expected_constraints:
         raise RuntimeError("unexpected PostgreSQL table constraints")
+    if "las_idempotency_keys" in tables:
+        index = connection.exec_driver_sql("""
+            SELECT pg_get_indexdef(indexrelid) FROM pg_index
+            WHERE indexrelid='qa.las_keys_case_idx'::regclass AND indisvalid AND indisready
+        """).scalar_one_or_none()
+        expected_index = (
+            "CREATE INDEX las_keys_case_idx ON qa.las_idempotency_keys "
+            f"USING btree ({CASE_REFERENCE})"
+        )
+        if index != expected_index:
+            raise RuntimeError("unexpected case reference index")
     inheritance = connection.exec_driver_sql("""
         SELECT EXISTS (
             SELECT FROM pg_inherits i
@@ -227,7 +293,7 @@ def _check_source(connection: Connection, head: str) -> None:
     if connection.exec_driver_sql(ROLE_BASELINE).scalar_one() is not True:
         raise RuntimeError("unexpected PostgreSQL role or schema configuration")
     source = current_revisions(connection)
-    if head != FIXTURES_REVISION or source not in REVISION_TABLES:
+    if head != CASES_REVISION or source not in REVISION_TABLES:
         raise RuntimeError("unsupported source revision")
     _validate_catalog(connection, REVISION_TABLES[source])
     _validate_grants(connection, REVISION_TABLES[source])

@@ -14,10 +14,10 @@ from conftest import Project
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import event
-from support.kt3_fixture_loader import order_lock
 from test_kt3_fixtures import CLIENT_A, CLIENT_B, SAME_ORDER, create_run, initialize
 
 from app.logistics_auth import LogisticsContext
+from app.logistics_locks import order_lock
 from app.main import app, create_app
 from app.order_store import OrderStore
 
@@ -43,6 +43,8 @@ def snapshot(project: Project) -> tuple[object, ...]:
             "las_run_clients",
             "las_orders",
             "las_delivery_dates",
+            "las_cases",
+            "las_idempotency_keys",
         )
         return tuple(
             observer.execute(
@@ -58,6 +60,7 @@ def authorized_client(
     monkeypatch: pytest.MonkeyPatch,
     *contexts: LogisticsContext,
     raise_server_exceptions: bool = True,
+    case_write_timeout: float | None = None,
 ) -> Iterator[tuple[TestClient, list[str]]]:
     project.api_env(monkeypatch)
     tokens = [secrets.token_urlsafe(32) for _ in contexts]
@@ -66,7 +69,8 @@ def authorized_client(
         for token, context in zip(tokens, contexts, strict=True)
     }
     with TestClient(
-        create_app(config), raise_server_exceptions=raise_server_exceptions
+        create_app(config, case_write_timeout=case_write_timeout),
+        raise_server_exceptions=raise_server_exceptions,
     ) as client:
         yield client, tokens
 
@@ -343,7 +347,7 @@ def test_kt3_options_single_snapshot_and_revision_guard(
             finally:
                 with migrated_db.db("migrate") as writer:
                     writer.execute(
-                        "UPDATE qa.alembic_version SET version_num='0002_las_fixtures'"
+                        "UPDATE qa.alembic_version SET version_num='0003_las_cases'"
                     )
         finally:
             event.remove(engine, "after_cursor_execute", pause_after_first_read)
