@@ -11,6 +11,7 @@ import pytest
 from conftest import Project
 from psycopg.pq import TransactionStatus
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
@@ -26,7 +27,8 @@ from test_kt3_case_concurrency import (
 )
 from test_kt3_fixtures import CLIENT_B, SAME_ORDER, create_run, initialize
 
-from app.case_store import INSERT_CASE, INSERT_KEY, OPERATION, TAKE_LOCK
+from app.case_store import INSERT_CASE, INSERT_KEY, OPERATION, SET_LOCK_LIMIT, TAKE_LOCK
+from app.database import Database
 from app.logistics_auth import LogisticsContext
 from app.logistics_locks import initialization_lock, order_lock, request_lock
 
@@ -106,6 +108,7 @@ def test_case_rollback_and_commit_uncertainty(
             db = store.database
             execute = AsyncConnection.execute
             commit = AsyncTransaction.commit
+            uncertain_pids = []
 
             async def fail_key(
                 conn: AsyncConnection, statement: Any, params: Any = None, **kw: Any
@@ -121,6 +124,11 @@ def test_case_rollback_and_commit_uncertainty(
                 assert case_rows(migrated_db, run) == before
 
             async def lose_confirmation(transaction: AsyncTransaction) -> None:
+                raw = await transaction.connection.get_raw_connection()
+                driver = cast(
+                    psycopg.AsyncConnection[tuple[object, ...]], raw.driver_connection
+                )
+                uncertain_pids.append(driver.info.backend_pid)
                 await commit(transaction)
                 cases, keys = case_rows(migrated_db, run)
                 assert len(cases) == 1 and keys == [("uncertain", cases[0][0])]
@@ -133,6 +141,12 @@ def test_case_rollback_and_commit_uncertainty(
                 assert "commit" not in response.text
             committed = case_rows(migrated_db, run)
             assert len(committed[0]) == 1 and len(committed[1]) == 1
+            assert len(uncertain_pids) == 1
+            with migrated_db.db() as observer:
+                assert observer.execute(
+                    "SELECT count(*) FROM pg_stat_activity WHERE pid=%s",
+                    (uncertain_pids[0],),
+                ).fetchone() == (0,)
             assert (await post_case(client, "uncertain")).status_code == 200
 
             with monkeypatch.context() as patch:
@@ -141,27 +155,6 @@ def test_case_rollback_and_commit_uncertainty(
                     await post_case(client, "duplicate-rollback")
                 ).status_code == 500
                 assert case_rows(migrated_db, run) == committed
-
-            before_commit = asyncio.Event()
-
-            async def pause_before_commit(_transaction: AsyncTransaction) -> None:
-                before_commit.set()
-                await asyncio.Event().wait()
-
-            with monkeypatch.context() as patch:
-                patch.setattr(AsyncTransaction, "commit", pause_before_commit)
-                pending = asyncio.create_task(post_case(client, "uncommitted"))
-                try:
-                    async with asyncio.timeout(3):
-                        await before_commit.wait()
-                    assert case_rows(migrated_db, run) == committed
-                finally:
-                    pending.cancel()
-                    with pytest.raises(asyncio.CancelledError):
-                        await pending
-                    await db.drain_cleanup()
-            assert case_rows(migrated_db, run) == committed
-            assert (await post_case(client, "uncommitted")).status_code == 200
 
             async def fail_rollback(_conn: AsyncConnection) -> None:
                 raise ConnectionError("synthetic rollback transport failure")
@@ -178,6 +171,42 @@ def test_case_rollback_and_commit_uncertainty(
             pool = cast(AsyncAdaptedQueuePool, db.engine.pool)
             assert pool.checkedout() == 0
             assert (await post_case(client, "rollback-transport")).status_code == 200
+
+        fresh = create_run(migrated_db)
+        assert initialize(migrated_db, fresh)
+        before_commit = asyncio.Event()
+        before_commit_pids = []
+
+        async def pause_before_commit(transaction: AsyncTransaction) -> None:
+            raw = await transaction.connection.get_raw_connection()
+            driver = cast(
+                psycopg.AsyncConnection[tuple[object, ...]], raw.driver_connection
+            )
+            before_commit_pids.append(driver.info.backend_pid)
+            before_commit.set()
+            await asyncio.Event().wait()
+
+        async with running_app(migrated_db, monkeypatch, fresh) as (client, store):
+            with monkeypatch.context() as patch:
+                patch.setattr(AsyncTransaction, "commit", pause_before_commit)
+                pending = asyncio.create_task(post_case(client, "uncommitted"))
+                try:
+                    async with asyncio.timeout(3):
+                        await before_commit.wait()
+                    assert case_rows(migrated_db, fresh) == ([], [])
+                finally:
+                    pending.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await pending
+                    await store.database.drain_cleanup()
+            assert case_rows(migrated_db, fresh) == ([], [])
+            assert len(before_commit_pids) == 1
+            with migrated_db.db() as observer:
+                assert observer.execute(
+                    "SELECT count(*) FROM pg_stat_activity WHERE pid=%s",
+                    (before_commit_pids[0],),
+                ).fetchone() == (0,)
+            assert (await post_case(client, "uncommitted")).status_code == 201
 
     asyncio.run(exercise())
 
@@ -276,6 +305,7 @@ def test_case_timeout_and_phase_measurement(
         run = create_run(migrated_db)
         assert initialize(migrated_db, run)
         phases: dict[str, list[float]] = {}
+        lock_errors: list[str | None] = []
         label = "cold"
 
         def record(phase: str, start: float) -> None:
@@ -293,7 +323,7 @@ def test_case_timeout_and_phase_measurement(
                 AsyncEngine.connect,
                 AsyncConnection.execute,
                 AsyncTransaction.commit,
-                db._release,
+                Database._release,
             )
 
             async def measure_connect(engine: AsyncEngine) -> AsyncConnection:
@@ -308,7 +338,13 @@ def test_case_timeout_and_phase_measurement(
             ) -> Any:
                 start = time.perf_counter()
                 try:
+                    if label == "lock_timeout" and statement is SET_LOCK_LIMIT:
+                        params = {"budget": "60ms"}
                     return await execute(conn, statement, params, **kw)
+                except DBAPIError as error:
+                    if label == "lock_timeout" and statement is TAKE_LOCK:
+                        lock_errors.append(getattr(error.orig, "sqlstate", None))
+                    raise
                 finally:
                     if statement is TAKE_LOCK:
                         record("lock_ms", start)
@@ -323,11 +359,11 @@ def test_case_timeout_and_phase_measurement(
                     record("commit_ms", start)
 
             async def measure_release(
-                conn: AsyncConnection, *, invalidate: bool = False
+                database: Database, conn: AsyncConnection, *, invalidate: bool = False
             ) -> None:
                 start = time.perf_counter()
                 try:
-                    await release(conn, invalidate=invalidate)
+                    await release(database, conn, invalidate=invalidate)
                 finally:
                     record("cleanup_ms", start)
 
@@ -335,7 +371,7 @@ def test_case_timeout_and_phase_measurement(
                 patch.setattr(AsyncEngine, "connect", measure_connect)
                 patch.setattr(AsyncConnection, "execute", measure_execute)
                 patch.setattr(AsyncTransaction, "commit", measure_commit)
-                patch.setattr(db, "_release", measure_release)
+                patch.setattr(Database, "_release", measure_release)
                 for index in range(8):
                     label = "cold" if index < 4 else "warm"
                     if label == "cold":
@@ -357,6 +393,33 @@ def test_case_timeout_and_phase_measurement(
                         record("http_total_ms", start)
                         assert response.status_code == 500
                     assert case_rows(migrated_db, run) == before
+                assert lock_errors == ["55P03"] * 4
+
+                # A separate test session uses the existing, longer SQL cap to observe waiters.
+                async with running_app(migrated_db, patch, run) as (
+                    wait_client,
+                    wait_store,
+                ):
+                    for label in ("lock_wait_success", "cancelled"):
+                        with migrated_db.db("migrate") as holder:
+                            holder.execute(
+                                "SELECT pg_advisory_xact_lock(%s::bigint)",
+                                (order_lock(run, CLIENT_B, SAME_ORDER),),
+                            )
+                            start = time.perf_counter()
+                            pending = asyncio.create_task(post_case(wait_client, label))
+                            await wait_for_advisory_block(migrated_db)
+                            if label == "cancelled":
+                                pending.cancel()
+                                with pytest.raises(asyncio.CancelledError):
+                                    await pending
+                                await wait_store.database.drain_cleanup()
+                        if label == "lock_wait_success":
+                            assert (await pending).status_code == 200
+                        record("http_total_ms", start)
+                    assert all(
+                        key[0] != "cancelled" for key in case_rows(migrated_db, run)[1]
+                    )
                 await db.drain_cleanup()
             assert (await post_case(client, "recovered")).status_code == 200
         out = {
@@ -367,7 +430,15 @@ def test_case_timeout_and_phase_measurement(
             }
             for name, values in sorted(phases.items())
         }
-        assert version == 180007 and "lock_timeout/cleanup_ms" in out
+        assert (
+            version == 180007
+            and {
+                "lock_timeout/cleanup_ms",
+                "cancelled/cleanup_ms",
+                "lock_wait_success/lock_ms",
+            }
+            <= out.keys()
+        )
         with capsys.disabled():
             print(
                 "D-LAS-07 case write synthetic PostgreSQL 18.7 measurements:",

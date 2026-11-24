@@ -16,6 +16,7 @@ SELECT
     (SELECT nspowner = 'qa_migrate'::regrole FROM pg_namespace WHERE nspname = 'qa')
     AND (SELECT count(*) = 2 AND bool_and(
            rolcanlogin AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
+           AND NOT has_parameter_privilege(oid, 'session_replication_role', 'SET')
            AND has_database_privilege(oid, current_database(), 'CONNECT')
            AND NOT has_database_privilege(oid, current_database(), 'CONNECT WITH GRANT OPTION')
            AND NOT has_database_privilege(oid, current_database(), 'CREATE')
@@ -29,6 +30,13 @@ SELECT
         SELECT FROM pg_auth_members
         WHERE member IN ('qa_api'::regrole, 'qa_migrate'::regrole)
            OR roleid IN ('qa_api'::regrole, 'qa_migrate'::regrole)
+    )
+    AND NOT EXISTS (
+        SELECT FROM pg_db_role_setting s CROSS JOIN LATERAL unnest(s.setconfig) config
+        WHERE s.setrole IN (0, 'qa_api'::regrole, 'qa_migrate'::regrole)
+          AND s.setdatabase IN (0, (SELECT oid FROM pg_database WHERE datname=current_database()))
+          AND split_part(config, '=', 1) = 'session_replication_role'
+          AND split_part(config, '=', 2) <> 'origin'
     )
     AND NOT EXISTS (
         SELECT FROM pg_namespace n CROSS JOIN LATERAL aclexplode(n.nspacl) acl

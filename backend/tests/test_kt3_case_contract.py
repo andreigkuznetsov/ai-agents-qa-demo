@@ -3,7 +3,13 @@ from uuid import UUID, uuid4
 import pytest
 from conftest import Project
 from test_kt3_fixtures import CLIENT_A, CLIENT_B, SAME_ORDER, create_run, initialize
-from test_kt3_order_reads import MISSING, authorization, authorized_client, snapshot
+from test_kt3_order_reads import (
+    MISSING,
+    add_order,
+    authorization,
+    authorized_client,
+    snapshot,
+)
 
 from app.case_store import OPERATION
 from app.logistics_auth import LogisticsContext
@@ -22,6 +28,8 @@ def test_case_http_contract(
 ) -> None:
     run, neighbor = create_run(migrated_db), create_run(migrated_db)
     assert initialize(migrated_db, run) and initialize(migrated_db, neighbor)
+    add_order(migrated_db, run, CLIENT_B, "order-second")
+    add_order(migrated_db, neighbor, CLIENT_B, "neighbor-only")
     with authorized_client(
         migrated_db,
         monkeypatch,
@@ -57,7 +65,7 @@ def test_case_http_contract(
             "cases": []
         }
         assert client.post("/fixtures", headers=b).status_code == 404
-        for order in ("absent", "order-blocked"):
+        for order in ("absent", "order-blocked", "neighbor-only"):
             refusal = client.post(
                 "/cases",
                 headers={**b, "Idempotency-Key": "key"},
@@ -79,6 +87,21 @@ def test_case_http_contract(
         assert set(case) == CASE_FIELDS and UUID(case["case_id"])
         assert {field: case[field] for field in PAYLOAD} == PAYLOAD
         assert case["status"] == "OPEN"
+        after_create = snapshot(migrated_db)
+        conflict = client.post(
+            "/cases",
+            headers={**b, "Idempotency-Key": "key"},
+            json={
+                **PAYLOAD,
+                "order_id": "order-second",
+                "requested_date": "2026-12-02",
+            },
+        )
+        assert (conflict.status_code, conflict.json()) == (
+            409,
+            {"error": {"code": "IDEMPOTENCY_KEY_CONFLICT"}},
+        )
+        assert snapshot(migrated_db) == after_create
         third = client.post(
             "/cases", headers={**other, "Idempotency-Key": "key"}, json=PAYLOAD
         )

@@ -104,6 +104,14 @@ def test_kt3_source_revision_matrix(
             "CREATE FUNCTION qa.kt3_test_function() RETURNS int LANGUAGE sql AS 'SELECT 1'",
             "DROP FUNCTION qa.kt3_test_function()",
         ),
+        (
+            "ALTER ROLE qa_api SET session_replication_role = replica",
+            "ALTER ROLE qa_api RESET session_replication_role",
+        ),
+        (
+            "GRANT SET ON PARAMETER session_replication_role TO qa_api",
+            "REVOKE SET ON PARAMETER session_replication_role FROM qa_api",
+        ),
     ):
         with fresh.db() as admin:
             admin.execute(change)
@@ -193,6 +201,7 @@ def test_kt3_upgrade_rollback_and_recovery(
         conn.exec_driver_sql("GRANT SELECT ON qa.las_cases TO nonexistent_test_role")
 
     row = None
+    previous_fixture = None
     for source in (None, "0001_runs", "0002_las_fixtures"):
         if source:
             prepare_kt2(fresh, source)
@@ -219,6 +228,11 @@ def test_kt3_upgrade_rollback_and_recovery(
                         "INSERT INTO qa.las_orders VALUES (%s,%s,%s,'ACTIVE','2026-11-25')",
                         (row[0], CLIENT_A, SAME_ORDER),
                     )
+                    migrator.execute(
+                        "INSERT INTO qa.las_delivery_dates VALUES (%s,%s,%s,'2026-11-26')",
+                        (row[0], CLIENT_A, SAME_ORDER),
+                    )
+                previous_fixture = legacy_fixture_snapshot(fresh)
             with monkeypatch.context() as patch:
                 fresh.api_env(patch)
                 with TestClient(importlib.import_module("app.main").app) as client:
@@ -235,6 +249,8 @@ def test_kt3_upgrade_rollback_and_recovery(
             assert isinstance(failure.value.__cause__, Error)
             assert failure.value.__cause__.sqlstate == sqlstate
             assert kt3_catalog(fresh) == before
+            if previous_fixture is not None:
+                assert legacy_fixture_snapshot(fresh) == previous_fixture
             assert not fresh.compose("ps", "-q", "api")
             if source:
                 with fresh.db("api") as api:
@@ -256,6 +272,7 @@ def test_kt3_upgrade_rollback_and_recovery(
             "AND table_name='runs' ORDER BY ordinal_position"
         ).fetchall() == [("run_id",), ("schema_version",), ("created_at",), ("status",)]
     assert row is not None
+    assert previous_fixture and legacy_fixture_snapshot(fresh) == previous_fixture
     with fresh.db("migrate") as migrator:
         assert not load_fixture(migrator, cast(UUID, row[0]), FIXTURE_VERSION, FIXTURE)
     new_run = create_run(fresh)
@@ -267,7 +284,25 @@ def test_kt3_upgrade_rollback_and_recovery(
         assert api.execute("SELECT * FROM qa.las_idempotency_keys").fetchall() == []
 
 
-def test_kt3_case_constraints(migrated_db: Project) -> None:
+def legacy_fixture_snapshot(project: Project) -> tuple[object, ...]:
+    with project.db() as observer:
+        observer.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        return tuple(
+            observer.execute(
+                f"SELECT to_jsonb(t) FROM qa.{table} AS t ORDER BY to_jsonb(t)"
+            ).fetchall()
+            for table in (
+                "las_fixture_runs",
+                "las_run_clients",
+                "las_orders",
+                "las_delivery_dates",
+            )
+        )
+
+
+def test_kt3_case_constraints(
+    migrated_db: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run, other, case_id = create_run(migrated_db), create_run(migrated_db), uuid4()
     assert initialize(migrated_db, run) and initialize(migrated_db, other)
     insert_case = "INSERT INTO qa.las_cases VALUES (%s,%s,%s,%s,'2026-11-26','DELIVERY_RESCHEDULE','OPEN')"
@@ -300,6 +335,38 @@ def test_kt3_case_constraints(migrated_db: Project) -> None:
             params[index] = invalid
             with pytest.raises(errors.ForeignKeyViolation), api.transaction():
                 api.execute(insert_key, params)
+    migration = importlib.import_module("app.migrate")
+    monkeypatch.setenv("QA_DB_HOST", migrated_db.host)
+    monkeypatch.setenv("QA_DB_PASSWORD", migrated_db.passwords["migrate"])
+    for change, repair in (
+        (
+            "ALTER TABLE qa.las_idempotency_keys DROP CONSTRAINT las_keys_case_fk",
+            "ALTER TABLE qa.las_idempotency_keys ADD CONSTRAINT las_keys_case_fk FOREIGN KEY "
+            "(run_id,client_id,order_id,requested_date,operation_type,case_id) REFERENCES qa.las_cases"
+            "(run_id,client_id,order_id,requested_date,operation_type,case_id)",
+        ),
+        (
+            "ALTER TABLE qa.las_cases DROP CONSTRAINT las_cases_business_key",
+            "ALTER TABLE qa.las_cases ADD CONSTRAINT las_cases_business_key UNIQUE (run_id,client_id,order_id,requested_date,operation_type)",
+        ),
+        (
+            "DROP INDEX qa.las_keys_case_idx; CREATE INDEX las_keys_case_idx ON qa.las_idempotency_keys(case_id)",
+            "DROP INDEX qa.las_keys_case_idx; CREATE INDEX las_keys_case_idx ON qa.las_idempotency_keys(run_id,client_id,order_id,requested_date,operation_type,case_id)",
+        ),
+        (
+            "GRANT UPDATE (request_key) ON qa.las_idempotency_keys TO qa_api",
+            "REVOKE UPDATE (request_key) ON qa.las_idempotency_keys FROM qa_api",
+        ),
+    ):
+        with migrated_db.db() as admin:
+            admin.execute(change)
+        try:
+            with pytest.raises(RuntimeError):
+                migration.upgrade()
+        finally:
+            with migrated_db.db() as admin:
+                admin.execute(repair)
+    migration.upgrade()
 
 
 def test_clean_start(fresh: Project) -> None:

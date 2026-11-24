@@ -18,6 +18,7 @@ FORBIDDEN = [
     "INSERT INTO qa.alembic_version VALUES ('denied')",
     "DELETE FROM qa.alembic_version",
     "SET ROLE qa_migrate",
+    "SET session_replication_role = replica",
 ]
 
 DOMAIN_FORBIDDEN = [

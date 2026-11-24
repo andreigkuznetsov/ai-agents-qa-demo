@@ -11,7 +11,7 @@ import pytest
 from conftest import Project
 from sqlalchemy.ext.asyncio import AsyncConnection
 from test_kt3_case_contract import PAYLOAD
-from test_kt3_fixtures import CLIENT_B, SAME_ORDER, create_run, initialize
+from test_kt3_fixtures import CLIENT_A, CLIENT_B, SAME_ORDER, create_run, initialize
 
 from app.case_store import INSERT_KEY, CaseStore
 from app.logistics_auth import LogisticsContext
@@ -29,12 +29,18 @@ async def running_app(
     run: UUID,
     *,
     statement_timeout: int = 2000,
+    extra_tokens: dict[str, LogisticsContext] | None = None,
 ) -> AsyncIterator[tuple[httpx.AsyncClient, CaseStore]]:
     project.api_env(monkeypatch)
     monkeypatch.setenv("QA_SQL_TIMEOUT_MS", str(statement_timeout))
-    context = LogisticsContext(run, CLIENT_B)
-    digest = hashlib.sha256(TEST_TOKEN.encode()).hexdigest()
-    application = create_app({digest: context}, case_write_timeout=4)
+    contexts = {TEST_TOKEN: LogisticsContext(run, CLIENT_B), **(extra_tokens or {})}
+    application = create_app(
+        {
+            hashlib.sha256(token.encode()).hexdigest(): context
+            for token, context in contexts.items()
+        },
+        case_write_timeout=4,
+    )
     async with (
         application.router.lifespan_context(application),
         httpx.AsyncClient(
@@ -46,27 +52,33 @@ async def running_app(
 
 
 async def post_case(
-    client: httpx.AsyncClient, key: str, *, requested_date: str = "2026-11-26"
+    client: httpx.AsyncClient,
+    key: str,
+    *,
+    requested_date: str = "2026-11-26",
+    token: str = TEST_TOKEN,
 ) -> httpx.Response:
     return await client.post(
         "/cases",
-        headers={**AUTHORIZATION, "Idempotency-Key": key},
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": key},
         json={**PAYLOAD, "requested_date": requested_date},
     )
 
 
 def case_rows(
-    project: Project, run: UUID
+    project: Project,
+    run: UUID,
+    client: str = CLIENT_B,
 ) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
     with project.db() as observer:
         observer.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         cases = observer.execute(
             "SELECT case_id,requested_date FROM qa.las_cases WHERE run_id=%s AND client_id=%s ORDER BY case_id",
-            (run, CLIENT_B),
+            (run, client),
         ).fetchall()
         keys = observer.execute(
             "SELECT request_key,case_id FROM qa.las_idempotency_keys WHERE run_id=%s AND client_id=%s ORDER BY request_key",
-            (run, CLIENT_B),
+            (run, client),
         ).fetchall()
         return cases, keys
 
@@ -78,7 +90,7 @@ async def wait_for_advisory_block(project: Project) -> tuple[int, int]:
         observer.autocommit = True
         while loop.time() < end:
             row = observer.execute("""
-                SELECT a.pid, pg_blocking_pids(a.pid)[1]
+                SELECT a.pid, (pg_blocking_pids(a.pid))[1]
                 FROM pg_stat_activity AS a
                 JOIN pg_locks AS locks ON locks.pid=a.pid
                 WHERE a.application_name='qa-api' AND locks.locktype='advisory'
@@ -162,6 +174,63 @@ def test_case_competing_posts(
             assert len(cases) == 1
             assert keys == [(key, cases[0][0]) for key in sorted({"first", second_key})]
 
+        run, other_run = create_run(migrated_db), create_run(migrated_db)
+        assert initialize(migrated_db, run) and initialize(migrated_db, other_run)
+        tokens = {
+            secrets.token_urlsafe(32): LogisticsContext(run, CLIENT_A),
+            secrets.token_urlsafe(32): LogisticsContext(other_run, CLIENT_B),
+        }
+        paused, release = asyncio.Event(), asyncio.Event()
+        execute = AsyncConnection.execute
+
+        async def hold_own(
+            conn: AsyncConnection, statement: Any, params: Any = None, **kw: Any
+        ) -> Any:
+            result = await execute(conn, statement, params, **kw)
+            if statement is INSERT_KEY and (params["run_id"], params["client_id"]) == (
+                run,
+                CLIENT_B,
+            ):
+                paused.set()
+                async with asyncio.timeout(3):
+                    await release.wait()
+            return result
+
+        with monkeypatch.context() as patch:
+            patch.setattr(AsyncConnection, "execute", hold_own)
+            async with running_app(migrated_db, patch, run, extra_tokens=tokens) as (
+                client,
+                _,
+            ):
+                first = asyncio.create_task(post_case(client, "shared"))
+                try:
+                    async with asyncio.timeout(3):
+                        await paused.wait()
+                        cross_client, cross_run = [
+                            await post_case(
+                                client,
+                                "shared",
+                                token=token,
+                                requested_date="2026-11-27"
+                                if info.client_id == CLIENT_A
+                                else "2026-11-26",
+                            )
+                            for token, info in tokens.items()
+                        ]
+                    assert not first.done()
+                    assert cross_client.status_code == cross_run.status_code == 201
+                finally:
+                    release.set()
+                    original = await first
+        assert original.status_code == 201
+        for context, result in zip(
+            (LogisticsContext(run, CLIENT_B), *tokens.values()),
+            (original, cross_client, cross_run),
+            strict=True,
+        ):
+            _, keys = case_rows(migrated_db, context.run_id, context.client_id)
+            assert keys == [("shared", UUID(result.json()["case_id"]))]
+
     asyncio.run(exercise())
 
 
@@ -216,6 +285,12 @@ def test_case_and_internal_change_both_orders(
                                 if pending is not None:
                                     response = await pending
                             assert response.status_code == failure
+                            expected = (
+                                "ORDER_TRANSFER_BLOCKED"
+                                if field == "status"
+                                else "DELIVERY_DATE_NOT_ALLOWED"
+                            )
+                            assert response.json() == {"error": {"code": expected}}
                             assert case_rows(migrated_db, run) == ([], [])
                         else:
                             post = asyncio.create_task(post_case(client, "candidate"))

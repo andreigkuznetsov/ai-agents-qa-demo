@@ -128,6 +128,14 @@ class Database:
                 await connection.execution_options(isolation_level="READ COMMITTED")
             transaction = await connection.begin()
             await self.assert_compatible(connection)
+            if (
+                case_write
+                and (
+                    await connection.exec_driver_sql("SHOW session_replication_role")
+                ).scalar_one()
+                != "origin"
+            ):
+                raise RuntimeError("incompatible PostgreSQL write session")
             yield connection
             try:
                 await transaction.commit()
