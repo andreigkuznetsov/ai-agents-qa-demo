@@ -16,7 +16,8 @@ else:
     from app import logistics_agent_storage_posix as storage
 
 _DB = "operations.sqlite3"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
+FOUND_EVIDENCE = 1
 _APP_ROOT = Path(__file__).resolve().parents[1]
 _PROJECT_ROOT = (
     _APP_ROOT.parent if (_APP_ROOT.parent / "openspec").is_dir() else _APP_ROOT
@@ -33,8 +34,11 @@ CREATE TABLE operations (
     idempotency_key TEXT UNIQUE,
     transport_observed TEXT NOT NULL DEFAULT 'UNOBSERVED'
         CHECK (transport_observed IN ('UNOBSERVED', 'HANDED_OFF')),
+    result_check_consumed INTEGER NOT NULL DEFAULT 0 CHECK (result_check_consumed IN (0, 1)),
     case_id TEXT,
-    evidence_kind INTEGER CHECK (evidence_kind IN (200, 201)),
+    evidence_kind INTEGER CHECK (evidence_kind IN (1, 200, 201)),
+    CHECK (result_check_consumed = 0 OR transport_observed = 'HANDED_OFF'),
+    CHECK (evidence_kind IS NOT 1 OR result_check_consumed = 1),
     CHECK ((case_id IS NULL) = (evidence_kind IS NULL)),
     CHECK (
         (idempotency_key IS NULL AND order_id IS NULL AND requested_date IS NULL
@@ -72,6 +76,7 @@ class OperationState:
     handed_off: bool
     case_id: UUID | None
     response_status: int | None
+    checked: bool
 
 
 def lock_filename(operation_id: UUID) -> str:
@@ -153,7 +158,7 @@ class OperationJournal:
                     if db.execute("SELECT 1 FROM sqlite_schema LIMIT 1").fetchone():
                         raise JournalUnavailable
                     db.execute(_SCHEMA)
-                    db.execute("PRAGMA user_version=1")
+                    db.execute("PRAGMA user_version=2")
                 self._require_version(db)
                 db.execute(
                     "INSERT INTO operations (operation_id, run_id, client_id) VALUES (?, ?, ?)",
@@ -202,7 +207,7 @@ class OwnedOperation:
         with self.journal._connect(self.directory) as db:
             self.journal._require_version(db)
             row = db.execute(
-                "SELECT started, idempotency_key IS NOT NULL, transport_observed, case_id, evidence_kind "
+                "SELECT started, idempotency_key IS NOT NULL, transport_observed, case_id, evidence_kind, result_check_consumed "
                 "FROM operations WHERE operation_id=? AND run_id=? AND client_id=?",
                 self._identity(),
             ).fetchone()
@@ -214,6 +219,7 @@ class OwnedOperation:
                 row[2] == "HANDED_OFF",
                 _case_id(row[3]),
                 row[4],
+                bool(row[5]),
             )
 
     def consume(self, order_id: str, requested_date: date) -> Permit | None:
@@ -239,6 +245,18 @@ class OwnedOperation:
             ).rowcount
             if changed != 1:
                 raise JournalUnavailable
+
+    def consume_check(self) -> Permit | None:
+        with self.journal._transaction(self.directory) as db:
+            self.journal._require_version(db)
+            row = db.execute(
+                "UPDATE operations SET result_check_consumed=1 "
+                "WHERE operation_id=? AND run_id=? AND client_id=? "
+                "AND transport_observed='HANDED_OFF' AND result_check_consumed=0 "
+                "AND case_id IS NULL RETURNING idempotency_key",
+                self._identity(),
+            ).fetchone()
+        return Permit(row[0]) if row is not None else None
 
     def confirm(self, case_id: UUID, status: int) -> None:
         with self.journal._transaction(self.directory) as db:

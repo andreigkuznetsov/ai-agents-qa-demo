@@ -3,6 +3,7 @@
   "issue": 25,
   "kind": "implementation",
   "scope": [
+    "backend/app/logistics_agent_events.py",
     "backend/app/logistics_agent_executor.py",
     "backend/app/logistics_agent_intent.py",
     "backend/app/logistics_agent_journal.py",
@@ -12,6 +13,10 @@
     "backend/tests/test_kt4_executor_core.py",
     "backend/tests/test_kt4_executor_integration.py",
     "backend/tests/test_kt4_executor_journal.py",
+    "backend/tests/test_kt4_executor_reconciliation_integration.py",
+    "backend/tests/test_kt4_executor_recovery.py",
+    "backend/tests/test_kt4_executor_recovery_integration.py",
+    "openspec/changes/kt4-logistics-agent/tasks.md",
     "openspec/verification/kt4-logistics-agent/pr2.json"
   ],
   "tasks": [
