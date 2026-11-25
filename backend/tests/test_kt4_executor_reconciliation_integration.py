@@ -218,7 +218,7 @@ def test_confirmed_results_and_double_failure_with_postgres(
         raise JournalUnavailable
 
     async def exercise() -> None:
-        simulator = create_app(auth)
+        simulator = create_app(auth, case_write_timeout=4, case_result_timeout=2)
         async with simulator.router.lifespan_context(simulator):
             for http_status, mode in scopes:
                 run = runs[(http_status, mode)]
@@ -296,5 +296,11 @@ def test_confirmed_results_and_double_failure_with_postgres(
                     assert replay.case_id in ids
                     if mode != "ambiguous":
                         assert replay == replace(first, evidence_incomplete=False)
+                    wrong_context = replace(context, client_id="synthetic-other-client")
+                    denied = await OperationExecutor(journal, 4).execute(
+                        operation, wrong_context, TEXT, test_transport=transport
+                    )
+                    assert denied.outcome == "UNKNOWN" and denied.case_id is None
+                    assert wire.counts() == (1, 0)
 
     asyncio.run(exercise())

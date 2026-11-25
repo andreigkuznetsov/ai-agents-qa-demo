@@ -4,6 +4,7 @@ import json
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
+from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
@@ -23,6 +24,7 @@ from app.logistics_agent_events import (
     AttemptEvent,
     EvidenceContext,
     JsonlEventSink,
+    Phase,
     unfinished_attempts,
 )
 from app.logistics_agent_executor import OperationExecutor
@@ -58,10 +60,10 @@ def test_permit_failure_never_dispatches(
     consume = OwnedOperation.consume
 
     def lose_ack(
-        owned: OwnedOperation, *args: object, **kwargs: object
+        owned: OwnedOperation, order_id: str, requested_date: date
     ) -> Permit | None:
         # The real transaction has committed before its confirmation is lost.
-        assert consume(owned, *args, **kwargs) is not None  # type: ignore[arg-type]
+        assert consume(owned, order_id, requested_date) is not None
         raise JournalUnavailable
 
     if committed:
@@ -189,7 +191,8 @@ class CaptureSink:
 
 def test_event_sink_keeps_correlated_attempt_history(private_journal_dir: Path) -> None:
     journal = OperationJournal(private_journal_dir)
-    stream = io.StringIO()
+    event_path = private_journal_dir / "events.jsonl"
+    stream = event_path.open("x", encoding="utf-8")
     sink = CaptureSink(JsonlEventSink(stream).emit)
     ctx = EvidenceContext(uuid4(), "a" * 40)
     executor = OperationExecutor(journal, 3, (sink, ctx))
@@ -244,8 +247,9 @@ def test_event_sink_keeps_correlated_attempt_history(private_journal_dir: Path) 
             await child
         assert len(unfinished_attempts(sink.events)) == 1
 
-    asyncio.run(exercise())
-    evidence = stream.getvalue()
+    with stream:
+        asyncio.run(exercise())
+    evidence = event_path.read_text(encoding="utf-8")
     assert len(keys) == 1
     for secret in (trusted.bearer, keys[0], request_marker, response_marker):
         if secret in evidence:
@@ -269,3 +273,57 @@ def test_event_sink_keeps_correlated_attempt_history(private_journal_dir: Path) 
         "elapsed_ms",
         "usage_source",
     }
+
+
+def test_two_evidence_channels_unavailable(
+    private_journal_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenStderr(io.StringIO):
+        def write(self, s: str) -> int:
+            raise OSError("synthetic stderr failure")
+
+    def fail_finished(event: AttemptEvent) -> None:
+        if event.phase is Phase.FINISHED:
+            raise OSError("synthetic event failure")
+
+    trusted, operation = context(), uuid4()
+    journal = OperationJournal(private_journal_dir)
+    journal.prepare(operation, trusted)
+    install_abort(private_journal_dir, "case_id")
+    calls: list[tuple[str, str]] = []
+    sink = CaptureSink(fail_finished)
+    executor = OperationExecutor(journal, 4, (sink, EvidenceContext(uuid4(), "a" * 40)))
+    with monkeypatch.context() as patch:
+        patch.setattr("app.logistics_agent_executor.sys.stderr", BrokenStderr())
+        result = asyncio.run(
+            executor.execute(
+                operation,
+                trusted,
+                TEXT,
+                test_transport=httpx2.MockTransport(simulator_handler(calls)),
+            )
+        )
+    assert result.outcome == "UNKNOWN" and result.case_id is None
+    assert result.evidence_incomplete and result.diagnostics_unavailable
+    assert calls.count(("POST", "/cases")) == 1
+    assert not any(path.endswith("/case-result") for _, path in calls)
+
+
+def test_jsonl_sink_does_not_append_after_partial_write(
+    private_journal_dir: Path,
+) -> None:
+    class PartialStream(io.StringIO):
+        def write(self, s: str) -> int:
+            return super().write(s[:7])
+
+    sink = JsonlEventSink(PartialStream())
+    event = AttemptEvent(
+        EvidenceContext(uuid4(), "a" * 40), uuid4(), uuid4(), uuid4(), Phase.STARTED, 0
+    )
+    with pytest.raises(OSError, match="INCOMPLETE_EVIDENCE_WRITE"):
+        sink.emit(event)
+    assert sink.stream.tell() == 7
+    with pytest.raises(OSError, match="EVENT_SINK_UNAVAILABLE"):
+        sink.emit(event)
+    assert sink.stream.tell() == 7
