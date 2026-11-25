@@ -3,19 +3,23 @@
   "issue": 25,
   "kind": "implementation",
   "scope": [
+    "backend/app/logistics_agent_budget.py",
     "backend/app/logistics_agent_events.py",
     "backend/app/logistics_agent_executor.py",
     "backend/app/logistics_agent_intent.py",
     "backend/app/logistics_agent_journal.py",
+    "backend/app/logistics_agent_model.py",
     "backend/app/logistics_agent_storage_posix.py",
     "backend/app/logistics_agent_storage_win.py",
     "backend/tests/kt4_executor_support.py",
     "backend/tests/test_kt4_executor_core.py",
     "backend/tests/test_kt4_executor_integration.py",
     "backend/tests/test_kt4_executor_journal.py",
+    "backend/tests/test_kt4_executor_policy.py",
     "backend/tests/test_kt4_executor_reconciliation_integration.py",
     "backend/tests/test_kt4_executor_recovery.py",
     "backend/tests/test_kt4_executor_recovery_integration.py",
+    "backend/tests/test_kt4_executor_scenarios_integration.py",
     "openspec/changes/kt4-logistics-agent/tasks.md",
     "openspec/verification/kt4-logistics-agent/pr2.json"
   ],
@@ -33,7 +37,11 @@
     "2.11",
     "2.12",
     "2.13",
-    "2.14"
+    "2.14",
+    "2.15",
+    "2.16",
+    "2.17",
+    "2.18"
   ],
   "targets": {
     "sc003": {
@@ -81,11 +89,6 @@
       "scenario": "SC-LAG-012",
       "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
     },
-    "sc023": {
-      "requirement": "AC-LAG-012",
-      "scenario": "SC-LAG-023",
-      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
-    },
     "sc013": {
       "requirement": "AC-LAG-006",
       "scenario": "SC-LAG-013",
@@ -101,6 +104,21 @@
       "scenario": "SC-LAG-015",
       "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
     },
+    "sc016": {
+      "requirement": "AC-LAG-008",
+      "scenario": "SC-LAG-016",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc017": {
+      "requirement": "AC-LAG-009",
+      "scenario": "SC-LAG-017",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc018": {
+      "requirement": "AC-LAG-009",
+      "scenario": "SC-LAG-018",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
     "sc019": {
       "requirement": "AC-LAG-010",
       "scenario": "SC-LAG-019",
@@ -109,6 +127,11 @@
     "sc020": {
       "requirement": "AC-LAG-010",
       "scenario": "SC-LAG-020",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc023": {
+      "requirement": "AC-LAG-012",
+      "scenario": "SC-LAG-023",
       "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
     }
   },
@@ -332,6 +355,111 @@
       "task": "2.14",
       "target": "sc015",
       "test": "backend/tests/test_kt4_executor_recovery.py::test_reconciliation_uses_one_original_key"
+    },
+    {
+      "task": "2.15",
+      "target": "sc017",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_independent_call_limits"
+    },
+    {
+      "task": "2.15",
+      "target": "sc017",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_post_reserves_shared_tool_slot"
+    },
+    {
+      "task": "2.16",
+      "target": "sc018",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_executor_time_and_reserve"
+    },
+    {
+      "task": "2.16",
+      "target": "sc018",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_unknown_usage_holds_reserve_without_retry"
+    },
+    {
+      "task": "2.17",
+      "target": "sc003",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_model_payload_and_event_sink_have_distinct_secret_checks"
+    },
+    {
+      "task": "2.17",
+      "target": "sc016",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_model_payload_and_event_sink_have_distinct_secret_checks"
+    },
+    {
+      "task": "2.17",
+      "target": "sc019",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_model_payload_and_event_sink_have_distinct_secret_checks"
+    },
+    {
+      "task": "2.17",
+      "target": "sc016",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_model_proposal_policy"
+    },
+    {
+      "task": "2.18",
+      "target": "sc005",
+      "test": "backend/tests/test_kt4_executor_scenarios_integration.py::test_s01_to_s06_with_scripted_model_and_postgres"
+    },
+    {
+      "task": "2.18",
+      "target": "sc006",
+      "test": "backend/tests/test_kt4_executor_scenarios_integration.py::test_s01_to_s06_with_scripted_model_and_postgres"
+    },
+    {
+      "task": "2.18",
+      "target": "sc007",
+      "test": "backend/tests/test_kt4_executor_scenarios_integration.py::test_s01_to_s06_with_scripted_model_and_postgres"
+    },
+    {
+      "task": "2.18",
+      "target": "sc008",
+      "test": "backend/tests/test_kt4_executor_scenarios_integration.py::test_s01_to_s06_with_scripted_model_and_postgres"
+    },
+    {
+      "task": "2.18",
+      "target": "sc009",
+      "test": "backend/tests/test_kt4_executor_scenarios_integration.py::test_s01_to_s06_with_scripted_model_and_postgres"
+    },
+    {
+      "task": "2.18",
+      "target": "sc014",
+      "test": "backend/tests/test_kt4_executor_scenarios_integration.py::test_s01_to_s06_with_scripted_model_and_postgres"
+    },
+    {
+      "task": "2.18",
+      "target": "sc015",
+      "test": "backend/tests/test_kt4_executor_scenarios_integration.py::test_s01_to_s06_with_scripted_model_and_postgres"
+    },
+    {
+      "task": "2.18",
+      "target": "sc016",
+      "test": "backend/tests/test_kt4_executor_scenarios_integration.py::test_s01_to_s06_with_scripted_model_and_postgres"
+    },
+    {
+      "task": "2.18",
+      "target": "sc023",
+      "test": "backend/tests/test_kt4_executor_scenarios_integration.py::test_s01_to_s06_with_scripted_model_and_postgres"
+    },
+    {
+      "task": "2.18",
+      "target": "sc005",
+      "test": "backend/tests/test_kt4_executor_core.py::test_kt4_intent"
+    },
+    {
+      "task": "2.18",
+      "target": "sc007",
+      "test": "backend/tests/test_kt4_executor_core.py::test_kt4_intent"
+    },
+    {
+      "task": "2.18",
+      "target": "sc008",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_model_proposal_policy"
+    },
+    {
+      "task": "2.18",
+      "target": "sc016",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_model_proposal_policy"
     }
   ]
 }
