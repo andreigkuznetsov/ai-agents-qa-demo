@@ -263,3 +263,63 @@ def test_kt4_rejects_lost_or_incompatible_journal(private_journal_dir: Path) -> 
         db.execute("PRAGMA user_version=99")
     assert run().code == "OPERATION_JOURNAL_UNAVAILABLE"
     assert not calls
+
+
+def test_consumed_unobserved_replay_never_dispatches(private_journal_dir: Path) -> None:
+    trusted, operation = context(), uuid4()
+    journal = OperationJournal(private_journal_dir)
+    journal.prepare(operation, trusted)
+    with journal.ownership(operation, trusted) as owned:
+        assert owned is not None
+        owned.start()
+        assert owned.consume(ORDER, DAY) is not None
+    calls: list[tuple[str, str]] = []
+    result = asyncio.run(
+        OperationExecutor(journal, 4).execute(
+            operation,
+            trusted,
+            TEXT,
+            test_transport=httpx2.MockTransport(simulator_handler(calls)),
+        )
+    )
+    assert result == ExecutionResult("UNKNOWN", "OPERATION_ALREADY_STARTED")
+    assert not calls
+    with journal.ownership(operation, trusted) as owned:
+        assert owned is not None
+        state = owned.read()
+        assert state.consumed and not state.handed_off and state.case_id is None
+
+
+@pytest.mark.parametrize("status", [200, 201])
+def test_sqlite_rejects_confirmation_without_second_post(
+    private_journal_dir: Path, status: int, capsys: pytest.CaptureFixture[str]
+) -> None:
+    trusted, operation = context(), uuid4()
+    journal = OperationJournal(private_journal_dir)
+    journal.prepare(operation, trusted)
+    with closing(sqlite3.connect(private_journal_dir / "operations.sqlite3")) as db:
+        db.execute("""
+            CREATE TRIGGER fail_confirmation BEFORE UPDATE OF case_id ON operations
+            WHEN NEW.case_id IS NOT NULL
+            BEGIN SELECT RAISE(ABORT, 'SYNTHETIC_SQLITE_DETAIL'); END
+        """)
+    calls: list[tuple[str, str]] = []
+
+    def deliver() -> ExecutionResult:
+        transport = httpx2.MockTransport(simulator_handler(calls, post_status=status))
+        return asyncio.run(
+            OperationExecutor(journal, 4).execute(
+                operation, trusted, TEXT, test_transport=transport
+            )
+        )
+
+    first = deliver()
+    assert first == ExecutionResult("UNKNOWN", "OPERATION_JOURNAL_UNAVAILABLE")
+    assert deliver() == ExecutionResult("UNKNOWN", "OPERATION_ALREADY_STARTED")
+    assert [method for method, _ in calls] == ["GET", "GET", "GET", "POST"]
+    with journal.ownership(operation, trusted) as owned:
+        assert owned is not None
+        state = owned.read()
+        assert state.consumed and state.handed_off and state.case_id is None
+    stream = capsys.readouterr()
+    assert "SYNTHETIC_SQLITE_DETAIL" not in stream.out + stream.err + repr(first)

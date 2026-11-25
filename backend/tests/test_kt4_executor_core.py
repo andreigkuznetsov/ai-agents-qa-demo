@@ -348,3 +348,41 @@ def test_kt4_post_observes_durable_consumption(
     diagnostic = repr(result) + caplog.text + captured.out + captured.err
     if any(secret in diagnostic for secret in (trusted.bearer, *used_keys)):
         pytest.fail("Private material appeared in diagnostics", pytrace=False)
+
+
+@pytest.mark.parametrize(
+    ("first_text", "first_outcome", "first_methods"),
+    [
+        ("Перенесите мою доставку на пятницу", "CLARIFY", []),
+        ("Покажите заказ order-001", "INFORMATION", ["GET"]),
+    ],
+)
+def test_read_only_replay_does_not_authorize_write(
+    private_journal_dir: Path,
+    first_text: str,
+    first_outcome: str,
+    first_methods: list[str],
+) -> None:
+    trusted, operation = context(), uuid4()
+    journal = OperationJournal(private_journal_dir)
+    journal.prepare(operation, trusted)
+    calls: list[tuple[str, str]] = []
+
+    def deliver(text: str) -> ExecutionResult:
+        return asyncio.run(
+            OperationExecutor(journal, 4).execute(
+                operation,
+                trusted,
+                text,
+                test_transport=httpx2.MockTransport(simulator_handler(calls)),
+            )
+        )
+
+    assert deliver(first_text).outcome == first_outcome
+    assert [method for method, _ in calls] == first_methods
+    assert deliver(TEXT) == ExecutionResult("UNKNOWN", "OPERATION_ALREADY_STARTED")
+    assert [method for method, _ in calls] == first_methods
+    with journal.ownership(operation, trusted) as owned:
+        assert owned is not None
+        state = owned.read()
+        assert not state.consumed and not state.handed_off and state.case_id is None

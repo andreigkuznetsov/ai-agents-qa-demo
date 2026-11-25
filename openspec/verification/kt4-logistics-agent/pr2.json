@@ -1,0 +1,199 @@
+{
+  "change_id": "kt4-logistics-agent",
+  "issue": 25,
+  "kind": "implementation",
+  "scope": [
+    "backend/app/logistics_agent_executor.py",
+    "backend/app/logistics_agent_intent.py",
+    "backend/app/logistics_agent_journal.py",
+    "backend/app/logistics_agent_storage_posix.py",
+    "backend/app/logistics_agent_storage_win.py",
+    "backend/tests/kt4_executor_support.py",
+    "backend/tests/test_kt4_executor_core.py",
+    "backend/tests/test_kt4_executor_integration.py",
+    "backend/tests/test_kt4_executor_journal.py",
+    "openspec/verification/kt4-logistics-agent/pr2.json"
+  ],
+  "tasks": [
+    "2.1",
+    "2.2",
+    "2.3",
+    "2.4",
+    "2.5",
+    "2.6"
+  ],
+  "targets": {
+    "sc003": {
+      "requirement": "AC-LAG-002",
+      "scenario": "SC-LAG-003",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc005": {
+      "requirement": "AC-LAG-003",
+      "scenario": "SC-LAG-005",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc006": {
+      "requirement": "AC-LAG-003",
+      "scenario": "SC-LAG-006",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc007": {
+      "requirement": "AC-LAG-003",
+      "scenario": "SC-LAG-007",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc008": {
+      "requirement": "AC-LAG-004",
+      "scenario": "SC-LAG-008",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc009": {
+      "requirement": "AC-LAG-004",
+      "scenario": "SC-LAG-009",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc010": {
+      "requirement": "AC-LAG-005",
+      "scenario": "SC-LAG-010",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc011": {
+      "requirement": "AC-LAG-005",
+      "scenario": "SC-LAG-011",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc012": {
+      "requirement": "AC-LAG-006",
+      "scenario": "SC-LAG-012",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc023": {
+      "requirement": "AC-LAG-012",
+      "scenario": "SC-LAG-023",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    }
+  },
+  "links": [
+    {
+      "task": "2.1",
+      "target": "sc023",
+      "test": "backend/tests/test_kt4_executor_integration.py::test_kt4_executor_real_simulator_and_postgres"
+    },
+    {
+      "task": "2.2",
+      "target": "sc005",
+      "test": "backend/tests/test_kt4_executor_core.py::test_kt4_intent"
+    },
+    {
+      "task": "2.2",
+      "target": "sc005",
+      "test": "backend/tests/test_kt4_executor_core.py::test_kt4_executor_gates"
+    },
+    {
+      "task": "2.2",
+      "target": "sc006",
+      "test": "backend/tests/test_kt4_executor_core.py::test_kt4_intent"
+    },
+    {
+      "task": "2.2",
+      "target": "sc006",
+      "test": "backend/tests/test_kt4_executor_integration.py::test_kt4_executor_real_simulator_and_postgres"
+    },
+    {
+      "task": "2.2",
+      "target": "sc007",
+      "test": "backend/tests/test_kt4_executor_core.py::test_kt4_intent"
+    },
+    {
+      "task": "2.2",
+      "target": "sc007",
+      "test": "backend/tests/test_kt4_executor_core.py::test_kt4_executor_gates"
+    },
+    {
+      "task": "2.3",
+      "target": "sc008",
+      "test": "backend/tests/test_kt4_executor_integration.py::test_kt4_executor_real_simulator_and_postgres"
+    },
+    {
+      "task": "2.3",
+      "target": "sc008",
+      "test": "backend/tests/test_kt4_executor_core.py::test_kt4_unconfirmed_permit_never_reaches_post"
+    },
+    {
+      "task": "2.3",
+      "target": "sc009",
+      "test": "backend/tests/test_kt4_executor_integration.py::test_kt4_executor_real_simulator_and_postgres"
+    },
+    {
+      "task": "2.3",
+      "target": "sc009",
+      "test": "backend/tests/test_kt4_executor_core.py::test_kt4_executor_gates"
+    },
+    {
+      "task": "2.3",
+      "target": "sc012",
+      "test": "backend/tests/test_kt4_executor_integration.py::test_kt4_executor_real_simulator_and_postgres"
+    },
+    {
+      "task": "2.4",
+      "target": "sc003",
+      "test": "backend/tests/test_kt4_executor_integration.py::test_kt4_executor_real_simulator_and_postgres"
+    },
+    {
+      "task": "2.4",
+      "target": "sc003",
+      "test": "backend/tests/test_kt4_executor_journal.py::test_kt4_rejects_invalid_paths_and_unsafe_artifacts"
+    },
+    {
+      "task": "2.4",
+      "target": "sc010",
+      "test": "backend/tests/test_kt4_executor_journal.py::test_kt4_rejects_invalid_paths_and_unsafe_artifacts"
+    },
+    {
+      "task": "2.4",
+      "target": "sc010",
+      "test": "backend/tests/test_kt4_executor_journal.py::test_kt4_rejects_lost_or_incompatible_journal"
+    },
+    {
+      "task": "2.5",
+      "target": "sc010",
+      "test": "backend/tests/test_kt4_executor_core.py::test_kt4_post_observes_durable_consumption"
+    },
+    {
+      "task": "2.5",
+      "target": "sc010",
+      "test": "backend/tests/test_kt4_executor_journal.py::test_kt4_journal_transaction_and_reopen"
+    },
+    {
+      "task": "2.5",
+      "target": "sc011",
+      "test": "backend/tests/test_kt4_executor_journal.py::test_kt4_journal_transaction_and_reopen"
+    },
+    {
+      "task": "2.6",
+      "target": "sc011",
+      "test": "backend/tests/test_kt4_executor_journal.py::test_kt4_lock_two_processes"
+    },
+    {
+      "task": "2.2",
+      "target": "sc005",
+      "test": "backend/tests/test_kt4_executor_core.py::test_read_only_replay_does_not_authorize_write"
+    },
+    {
+      "task": "2.5",
+      "target": "sc010",
+      "test": "backend/tests/test_kt4_executor_journal.py::test_consumed_unobserved_replay_never_dispatches"
+    },
+    {
+      "task": "2.6",
+      "target": "sc011",
+      "test": "backend/tests/test_kt4_executor_journal.py::test_consumed_unobserved_replay_never_dispatches"
+    },
+    {
+      "task": "2.5",
+      "target": "sc011",
+      "test": "backend/tests/test_kt4_executor_journal.py::test_sqlite_rejects_confirmation_without_second_post"
+    }
+  ]
+}
