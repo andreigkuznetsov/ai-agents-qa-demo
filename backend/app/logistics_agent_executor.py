@@ -1,12 +1,18 @@
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from time import monotonic_ns
+from time import monotonic, monotonic_ns
 from typing import Literal
 from uuid import UUID, uuid4
 
 import httpx2
 
+from app.logistics_agent_budget import (
+    BudgetDenied,
+    CallBudget,
+    CallTimedOut,
+    SyntheticLimits,
+)
 from app.logistics_agent_events import (
     AttemptEvent,
     DiagnosticCode,
@@ -24,6 +30,14 @@ from app.logistics_agent_journal import (
     JournalUnavailable,
     OperationJournal,
     OwnedOperation,
+)
+from app.logistics_agent_model import (
+    ModelInput,
+    ModelPort,
+    ModelReply,
+    ModelUnavailable,
+    Proposal,
+    Step,
 )
 from app.logistics_agent_tools import (
     CaseFound,
@@ -51,11 +65,18 @@ class ExecutionResult:
     diagnostics_unavailable: bool = False
 
 
+class ProposalRejected(Exception):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class OperationExecutor:
     journal: OperationJournal
     timeout: float
     evidence: tuple[EventSink, EvidenceContext] | None = None
+    model: ModelPort | None = None
+    limits: SyntheticLimits | None = None
+    clock: Callable[[], float] = monotonic
 
     async def execute(
         self,
@@ -65,9 +86,16 @@ class OperationExecutor:
         *,
         test_transport: httpx2.AsyncBaseTransport | None = None,
     ) -> ExecutionResult:
+        budget = CallBudget(self.timeout, self.limits, self.clock)
         if self.evidence is None:
             return await self._execute(
-                operation_id, context, text, test_transport, lambda _: True, True
+                operation_id,
+                context,
+                text,
+                test_transport,
+                lambda _: True,
+                True,
+                budget,
             )
         sink, evidence = self.evidence
         attempt = uuid4()
@@ -92,6 +120,7 @@ class OperationExecutor:
                             (monotonic_ns() - started) // 1_000_000,
                             EventOutcome(outcome) if outcome is not None else None,
                             diagnostic,
+                            budget.summary() if phase is Phase.FINISHED else None,
                         )
                     )
                 except (OSError, ValueError):
@@ -100,7 +129,7 @@ class OperationExecutor:
 
         admitted = record(Phase.STARTED)
         result = await self._execute(
-            operation_id, context, text, test_transport, record, admitted
+            operation_id, context, text, test_transport, record, admitted, budget
         )
         diagnostic = next(
             (code for code in DiagnosticCode if code == result.code), None
@@ -142,6 +171,7 @@ class OperationExecutor:
         test_transport: httpx2.AsyncBaseTransport | None,
         record: Callable[[Phase], bool],
         admitted: bool,
+        budget: CallBudget,
     ) -> ExecutionResult:
         try:
             with self.journal.ownership(operation_id, context) as owned:
@@ -157,29 +187,82 @@ class OperationExecutor:
                 owned.start()
                 intent = resolve_intent(text, context.reference_year)
                 if intent is None:
+                    try:
+                        await self._propose(Step.CLARIFY, False, budget)
+                    except (
+                        BudgetDenied,
+                        ProposalRejected,
+                        ModelUnavailable,
+                        CallTimedOut,
+                    ):
+                        pass
                     return ExecutionResult("CLARIFY", "ORDER_OR_DATE_REQUIRED")
                 async with ToolAdapter(
                     context, timeout=self.timeout, test_transport=test_transport
                 ) as tools:
-                    return await self._perform(tools, owned, intent, record)
+                    return await self._perform(tools, owned, intent, record, budget)
         except JournalUnavailable:
             return ExecutionResult("UNKNOWN", "OPERATION_JOURNAL_UNAVAILABLE")
+        except BudgetDenied:
+            return ExecutionResult("REJECTED", "EXECUTION_LIMIT_REACHED")
+        except ProposalRejected:
+            return ExecutionResult("REJECTED", "MODEL_PROPOSAL_REJECTED")
+        except (ModelUnavailable, CallTimedOut):
+            return ExecutionResult("REJECTED", "CALL_UNAVAILABLE")
 
-    @staticmethod
+    async def _propose(
+        self, step: Step, write_requested: bool, budget: CallBudget
+    ) -> None:
+        model = self.model
+        if model is None:
+            return
+        request = ModelInput(step, write_requested)
+        response = await budget.call("model", lambda: model.propose(request))
+        if type(response) is not ModelReply or type(response.proposals) is not tuple:
+            raise ModelUnavailable
+        valid_usage = budget.settle_usage(response.usage)
+        proposals = response.proposals
+        if not budget.count_proposals(len(proposals)):
+            raise BudgetDenied
+        if valid_usage and len(proposals) == 1 and request.allowed is not None:
+            proposal = proposals[0]
+            if (
+                type(proposal) is Proposal
+                and type(proposal.tool) is str
+                and proposal.tool == request.allowed.value
+                and isinstance(proposal.arguments, Mapping)
+                and set(proposal.arguments) == {"order_ref"}
+                and type(proposal.arguments["order_ref"]) is str
+                and proposal.arguments["order_ref"] == "current"
+            ):
+                return
+        raise ProposalRejected
+
     async def _perform(
+        self,
         tools: ToolAdapter,
         owned: OwnedOperation,
         intent: RequestIntent,
         record: Callable[[Phase], bool],
+        budget: CallBudget,
     ) -> ExecutionResult:
         order_args = {"order_id": intent.order_id}
-        order = await tools.read(Operation.GET_ORDER, order_args)
+        prepaid = self.model is not None
+        await self._propose(Step.ORDER, intent.requested_date is not None, budget)
+        order = await budget.call(
+            "read", lambda: tools.read(Operation.GET_ORDER, order_args), prepaid=prepaid
+        )
         if not isinstance(order, OrderView):
             return _read_failure(order)
         if intent.requested_date is None:
             return ExecutionResult("INFORMATION", "ORDER_READ", order=order)
 
-        options = await tools.read(Operation.GET_DELIVERY_OPTIONS, order_args)
+        await self._propose(Step.OPTIONS, True, budget)
+        options = await budget.call(
+            "read",
+            lambda: tools.read(Operation.GET_DELIVERY_OPTIONS, order_args),
+            prepaid=prepaid,
+        )
         if not isinstance(options, DeliveryOptionsView):
             return _read_failure(options)
         if (
@@ -197,37 +280,60 @@ class OperationExecutor:
         if intent.requested_date not in options.dates:
             return ExecutionResult("REJECTED", "DELIVERY_DATE_NOT_ALLOWED")
 
-        cases = await tools.read(Operation.GET_ORDER_CASES, order_args)
+        await self._propose(Step.CASES, True, budget)
+        cases = await budget.call(
+            "read",
+            lambda: tools.read(Operation.GET_ORDER_CASES, order_args),
+            prepaid=prepaid,
+        )
         if not isinstance(cases, CasesView):
             return _read_failure(cases)
         for case in cases.cases:
             if case.requested_date == intent.requested_date:
                 return ExecutionResult("EXISTING", "OPEN_CASE_EXISTS", case.case_id)
 
+        await self._propose(Step.WRITE, True, budget)
+        budget.require_post_reserve(prepaid=prepaid)
         permit = owned.consume(intent.order_id, intent.requested_date)
         if permit is None:
             return ExecutionResult("UNKNOWN", "POST_PERMIT_NOT_CONFIRMED")
         if not record(Phase.PERMIT_CONSUMED):
             return ExecutionResult("UNKNOWN", "EVENT_SINK_UNAVAILABLE")
-        result = await tools.create_case(
-            {**order_args, "requested_date": intent.requested_date.isoformat()},
-            idempotency_key=permit.key,
-        )
+        post_args = {**order_args, "requested_date": intent.requested_date.isoformat()}
+        try:
+            result = await budget.call(
+                "post",
+                lambda: tools.create_case(post_args, idempotency_key=permit.key),
+                prepaid=prepaid,
+            )
+        except BudgetDenied:
+            return ExecutionResult("UNKNOWN", "POST_PERMIT_CONSUMED_WITHOUT_HANDOFF")
+        except CallTimedOut:
+            result = ToolFailure("POST_WAIT_DEADLINE", outcome_unknown=True)
         if isinstance(result, ToolFailure):
             if result.code != "INVALID_ARGUMENTS":
                 owned.observe_handoff()
                 record(Phase.POST_OBSERVED)
             if result.outcome_unknown:
-                check = owned.consume_check()
-                if check is not None and record(Phase.CHECK_CONSUMED):
-                    reconciled = await tools.check_case_result(
-                        order_args, idempotency_key=check.key
-                    )
-                    if isinstance(reconciled, CaseFound) and (
-                        reconciled.case.requested_date == intent.requested_date
-                    ):
-                        owned.confirm(reconciled.case.case_id, FOUND_EVIDENCE)
-                        return _confirmed(reconciled.case.case_id, FOUND_EVIDENCE)
+
+                async def reconcile() -> object:
+                    check = owned.consume_check()
+                    if check is not None and record(Phase.CHECK_CONSUMED):
+                        budget.time_for("check")
+                        return await tools.check_case_result(
+                            order_args, idempotency_key=check.key
+                        )
+                    return None
+
+                try:
+                    reconciled = await budget.call("check", reconcile)
+                except (BudgetDenied, CallTimedOut):
+                    return ExecutionResult("UNKNOWN", result.code)
+                if isinstance(reconciled, CaseFound) and (
+                    reconciled.case.requested_date == intent.requested_date
+                ):
+                    owned.confirm(reconciled.case.case_id, FOUND_EVIDENCE)
+                    return _confirmed(reconciled.case.case_id, FOUND_EVIDENCE)
                 return ExecutionResult("UNKNOWN", result.code)
             return ExecutionResult("REJECTED", result.code)
 

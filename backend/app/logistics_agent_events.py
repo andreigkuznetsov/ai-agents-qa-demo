@@ -8,6 +8,8 @@ from io import TextIOWrapper
 from typing import Protocol, TextIO
 from uuid import UUID
 
+from app.logistics_agent_budget import BudgetSummary
+
 
 class Phase(StrEnum):
     STARTED = "STARTED"
@@ -54,6 +56,7 @@ class AttemptEvent:
     elapsed_ms: int
     outcome: Outcome | None = None
     diagnostic: DiagnosticCode | None = None
+    budget: BudgetSummary | None = None
 
 
 class EventSink(Protocol):
@@ -117,6 +120,35 @@ class JsonlEventSink:
             "elapsed_ms": event.elapsed_ms,
             "usage_source": "UNKNOWN",
         }
+        if event.budget is not None:
+            budget = event.budget
+            if type(budget) is not BudgetSummary or any(
+                type(value) is not int or value < 0
+                for value in (
+                    budget.model_calls,
+                    budget.tool_attempts,
+                    budget.post_attempts,
+                    budget.result_checks,
+                    budget.known_cost,
+                    budget.held_cost,
+                )
+            ):
+                raise ValueError("INVALID_BUDGET_EVENT")
+            row.update(
+                model_calls=budget.model_calls,
+                tool_attempts=budget.tool_attempts,
+                post_attempts=budget.post_attempts,
+                result_checks=budget.result_checks,
+                known_synthetic_cost=budget.known_cost,
+                held_synthetic_cost=budget.held_cost,
+                usage_source=(
+                    "SYNTHETIC_RESERVED"
+                    if budget.held_cost
+                    else "SYNTHETIC_REPORTED"
+                    if budget.model_calls
+                    else "NO_MODEL_CALL"
+                ),
+            )
         try:
             write_line(self.stream, row)
         except (OSError, ValueError):
