@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from io import TextIOWrapper
 from typing import Protocol, TextIO
 from uuid import UUID
 
@@ -74,6 +75,11 @@ class JsonlEventSink:
             while chunk := self.stream.read(8192):
                 last = chunk[-1]
             self._available = last in ("", "\n")
+            if isinstance(self.stream, TextIOWrapper):
+                # Universal-newline reads translate a torn CRLF ending into LF.
+                endings = self.stream.newlines
+                if endings == "\r" or (isinstance(endings, tuple) and "\r" in endings):
+                    self._available = False
         except (OSError, ValueError):
             self._available = False
 

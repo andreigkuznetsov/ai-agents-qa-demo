@@ -332,12 +332,15 @@ def test_jsonl_sink_does_not_append_after_partial_write() -> None:
     assert sink.stream.tell() == 7
 
 
+@pytest.mark.parametrize(
+    "fragment", [b'{"versi', b'{"version":1}\r'], ids=["partial-json", "partial-crlf"]
+)
 def test_reopened_torn_jsonl_blocks_new_dispatch(
     private_journal_dir: Path,
     capsys: pytest.CaptureFixture[str],
+    fragment: bytes,
 ) -> None:
     stream_path = private_journal_dir / "events.jsonl"
-    fragment = b'{"versi'
     stream_path.write_bytes(fragment)
     trusted, operation = context(), uuid4()
     journal = OperationJournal(private_journal_dir)
@@ -360,6 +363,24 @@ def test_reopened_torn_jsonl_blocks_new_dispatch(
     assert stream_path.read_bytes() == fragment
     assert calls == []
     assert json.loads(capsys.readouterr().err)["event_sink_available"] is False
+
+
+@pytest.mark.parametrize("ending", [b"\n", b"\r\n"], ids=["lf", "crlf"])
+def test_reopened_complete_jsonl_keeps_distinct_rows(
+    tmp_path: Path, ending: bytes
+) -> None:
+    path = tmp_path / "history.jsonl"
+    earlier = b'{"version":1}' + ending
+    path.write_bytes(earlier)
+    event = AttemptEvent(
+        EvidenceContext(uuid4(), "a" * 40), uuid4(), uuid4(), uuid4(), Phase.STARTED, 0
+    )
+    with path.open("a+", encoding="utf-8") as stream:
+        JsonlEventSink(stream).emit(event)
+    assert path.read_bytes().startswith(earlier)
+    rows = [json.loads(line) for line in path.read_bytes().split(b"\n") if line]
+    assert len(rows) == 2 and rows[0] == {"version": 1}
+    assert rows[1]["attempt_id"] == str(event.attempt_id)
 
 
 def test_busy_sqlite_commit_blocks_post(
@@ -402,6 +423,7 @@ def test_busy_sqlite_commit_blocks_post(
         ) as reader:
             reader.execute("BEGIN")
             reader.execute("SELECT started FROM operations").fetchone()
+            statements.clear()
             return consume(owned, order_id, requested_date)
 
     monkeypatch.setattr(OperationJournal, "_connect", trace)
@@ -415,7 +437,7 @@ def test_busy_sqlite_commit_blocks_post(
             test_transport=httpx2.MockTransport(simulator_handler(calls)),
         )
     )
-    assert statements[-2:] == ["UPDATE", "COMMIT"]
+    assert statements == ["UPDATE", "COMMIT"]
     assert errors == [sqlite3.SQLITE_BUSY]
     assert result.outcome == "UNKNOWN" and result.case_id is None
     assert [method for method, _ in calls] == ["GET", "GET", "GET"]

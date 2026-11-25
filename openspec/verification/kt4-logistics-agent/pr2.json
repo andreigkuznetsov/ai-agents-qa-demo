@@ -25,7 +25,15 @@
     "2.3",
     "2.4",
     "2.5",
-    "2.6"
+    "2.6",
+    "2.7",
+    "2.8",
+    "2.9",
+    "2.10",
+    "2.11",
+    "2.12",
+    "2.13",
+    "2.14"
   ],
   "targets": {
     "sc003": {
@@ -76,6 +84,31 @@
     "sc023": {
       "requirement": "AC-LAG-012",
       "scenario": "SC-LAG-023",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc013": {
+      "requirement": "AC-LAG-006",
+      "scenario": "SC-LAG-013",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc014": {
+      "requirement": "AC-LAG-007",
+      "scenario": "SC-LAG-014",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc015": {
+      "requirement": "AC-LAG-007",
+      "scenario": "SC-LAG-015",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc019": {
+      "requirement": "AC-LAG-010",
+      "scenario": "SC-LAG-019",
+      "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
+    },
+    "sc020": {
+      "requirement": "AC-LAG-010",
+      "scenario": "SC-LAG-020",
       "spec": "openspec/changes/kt4-logistics-agent/specs/logistics-agent/spec.md"
     }
   },
@@ -199,6 +232,106 @@
       "task": "2.5",
       "target": "sc011",
       "test": "backend/tests/test_kt4_executor_journal.py::test_sqlite_rejects_confirmation_without_second_post"
+    },
+    {
+      "task": "2.7",
+      "target": "sc010",
+      "test": "backend/tests/test_kt4_executor_recovery.py::test_permit_failure_never_dispatches"
+    },
+    {
+      "task": "2.7",
+      "target": "sc010",
+      "test": "backend/tests/test_kt4_executor_recovery.py::test_busy_sqlite_commit_blocks_post"
+    },
+    {
+      "task": "2.8",
+      "target": "sc010",
+      "test": "backend/tests/test_kt4_executor_recovery_integration.py::test_crash_and_concurrent_delivery_over_tcp"
+    },
+    {
+      "task": "2.9",
+      "target": "sc011",
+      "test": "backend/tests/test_kt4_executor_recovery_integration.py::test_crash_and_concurrent_delivery_over_tcp"
+    },
+    {
+      "task": "2.10",
+      "target": "sc011",
+      "test": "backend/tests/test_kt4_executor_recovery_integration.py::test_crash_and_concurrent_delivery_over_tcp"
+    },
+    {
+      "task": "2.10",
+      "target": "sc011",
+      "test": "backend/tests/test_kt4_executor_reconciliation_integration.py::test_confirmed_results_and_double_failure_with_postgres"
+    },
+    {
+      "task": "2.11",
+      "target": "sc011",
+      "test": "backend/tests/test_kt4_executor_reconciliation_integration.py::test_confirmed_results_and_double_failure_with_postgres"
+    },
+    {
+      "task": "2.11",
+      "target": "sc013",
+      "test": "backend/tests/test_kt4_executor_reconciliation_integration.py::test_confirmed_results_and_double_failure_with_postgres"
+    },
+    {
+      "task": "2.12",
+      "target": "sc019",
+      "test": "backend/tests/test_kt4_executor_recovery.py::test_event_sink_keeps_correlated_attempt_history"
+    },
+    {
+      "task": "2.12",
+      "target": "sc020",
+      "test": "backend/tests/test_kt4_executor_recovery.py::test_event_sink_keeps_correlated_attempt_history"
+    },
+    {
+      "task": "2.12",
+      "target": "sc020",
+      "test": "backend/tests/test_kt4_executor_recovery.py::test_jsonl_sink_does_not_append_after_partial_write"
+    },
+    {
+      "task": "2.12",
+      "target": "sc020",
+      "test": "backend/tests/test_kt4_executor_recovery.py::test_reopened_torn_jsonl_blocks_new_dispatch"
+    },
+    {
+      "task": "2.12",
+      "target": "sc020",
+      "test": "backend/tests/test_kt4_executor_recovery.py::test_reopened_complete_jsonl_keeps_distinct_rows"
+    },
+    {
+      "task": "2.13",
+      "target": "sc011",
+      "test": "backend/tests/test_kt4_executor_reconciliation_integration.py::test_confirmed_results_and_double_failure_with_postgres"
+    },
+    {
+      "task": "2.13",
+      "target": "sc019",
+      "test": "backend/tests/test_kt4_executor_reconciliation_integration.py::test_confirmed_results_and_double_failure_with_postgres"
+    },
+    {
+      "task": "2.13",
+      "target": "sc020",
+      "test": "backend/tests/test_kt4_executor_reconciliation_integration.py::test_confirmed_results_and_double_failure_with_postgres"
+    },
+    {
+      "task": "2.13",
+      "target": "sc020",
+      "test": "backend/tests/test_kt4_executor_recovery.py::test_two_evidence_channels_unavailable"
+    },
+    {
+      "task": "2.14",
+      "target": "sc014",
+      "test": "backend/tests/test_kt4_executor_reconciliation_integration.py::test_reconciliation_with_postgres_visibility_and_failures"
+    },
+    {
+      "task": "2.14",
+      "target": "sc015",
+      "test": "backend/tests/test_kt4_executor_reconciliation_integration.py::test_reconciliation_with_postgres_visibility_and_failures"
+    },
+    {
+      "task": "2.14",
+      "target": "sc015",
+      "test": "backend/tests/test_kt4_executor_recovery.py::test_reconciliation_uses_one_original_key"
     }
   ]
 }
