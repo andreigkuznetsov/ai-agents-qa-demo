@@ -397,6 +397,11 @@
       "test": "backend/tests/test_kt4_executor_policy.py::test_model_proposal_policy"
     },
     {
+      "task": "2.17",
+      "target": "sc016",
+      "test": "backend/tests/test_kt4_executor_policy.py::test_model_text_cannot_trigger_tool"
+    },
+    {
       "task": "2.18",
       "target": "sc005",
       "test": "backend/tests/test_kt4_executor_scenarios_integration.py::test_s01_to_s06_with_scripted_model_and_postgres"
