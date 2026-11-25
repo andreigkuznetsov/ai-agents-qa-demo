@@ -107,9 +107,14 @@ class OperationExecutor:
         )
         if record(Phase.FINISHED, result.outcome, diagnostic):
             return result
+        stderr = sys.stderr
+        if stderr is None:
+            return replace(
+                result, evidence_incomplete=True, diagnostics_unavailable=True
+            )
         try:
             write_line(
-                sys.stderr,
+                stderr,
                 {
                     "code": "OPERATION_EVIDENCE_INCOMPLETE",
                     "operation_id": str(operation_id)

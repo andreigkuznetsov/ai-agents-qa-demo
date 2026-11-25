@@ -2,8 +2,8 @@ import asyncio
 import io
 import json
 import sqlite3
-from collections.abc import Callable
-from contextlib import closing
+from collections.abc import Callable, Iterator
+from contextlib import closing, contextmanager
 from datetime import date
 from pathlib import Path
 from uuid import uuid4
@@ -192,7 +192,7 @@ class CaptureSink:
 def test_event_sink_keeps_correlated_attempt_history(private_journal_dir: Path) -> None:
     journal = OperationJournal(private_journal_dir)
     event_path = private_journal_dir / "events.jsonl"
-    stream = event_path.open("x", encoding="utf-8")
+    stream = event_path.open("x+", encoding="utf-8")
     sink = CaptureSink(JsonlEventSink(stream).emit)
     ctx = EvidenceContext(uuid4(), "a" * 40)
     executor = OperationExecutor(journal, 3, (sink, ctx))
@@ -275,9 +275,11 @@ def test_event_sink_keeps_correlated_attempt_history(private_journal_dir: Path) 
     }
 
 
+@pytest.mark.parametrize("stderr_missing", [False, True])
 def test_two_evidence_channels_unavailable(
     private_journal_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
+    stderr_missing: bool,
 ) -> None:
     class BrokenStderr(io.StringIO):
         def write(self, s: str) -> int:
@@ -295,7 +297,10 @@ def test_two_evidence_channels_unavailable(
     sink = CaptureSink(fail_finished)
     executor = OperationExecutor(journal, 4, (sink, EvidenceContext(uuid4(), "a" * 40)))
     with monkeypatch.context() as patch:
-        patch.setattr("app.logistics_agent_executor.sys.stderr", BrokenStderr())
+        patch.setattr(
+            "app.logistics_agent_executor.sys.stderr",
+            None if stderr_missing else BrokenStderr(),
+        )
         result = asyncio.run(
             executor.execute(
                 operation,
@@ -310,9 +315,7 @@ def test_two_evidence_channels_unavailable(
     assert not any(path.endswith("/case-result") for _, path in calls)
 
 
-def test_jsonl_sink_does_not_append_after_partial_write(
-    private_journal_dir: Path,
-) -> None:
+def test_jsonl_sink_does_not_append_after_partial_write() -> None:
     class PartialStream(io.StringIO):
         def write(self, s: str) -> int:
             return super().write(s[:7])
@@ -327,3 +330,96 @@ def test_jsonl_sink_does_not_append_after_partial_write(
     with pytest.raises(OSError, match="EVENT_SINK_UNAVAILABLE"):
         sink.emit(event)
     assert sink.stream.tell() == 7
+
+
+def test_reopened_torn_jsonl_blocks_new_dispatch(
+    private_journal_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stream_path = private_journal_dir / "events.jsonl"
+    fragment = b'{"versi'
+    stream_path.write_bytes(fragment)
+    trusted, operation = context(), uuid4()
+    journal = OperationJournal(private_journal_dir)
+    journal.prepare(operation, trusted)
+    calls: list[tuple[str, str]] = []
+    with stream_path.open("a+", encoding="utf-8") as stream:
+        sink = JsonlEventSink(stream)
+        executor = OperationExecutor(
+            journal, 4, (sink, EvidenceContext(uuid4(), "a" * 40))
+        )
+        result = asyncio.run(
+            executor.execute(
+                operation,
+                trusted,
+                TEXT,
+                test_transport=httpx2.MockTransport(simulator_handler(calls)),
+            )
+        )
+    assert result.outcome == "UNKNOWN" and result.evidence_incomplete
+    assert stream_path.read_bytes() == fragment
+    assert calls == []
+    assert json.loads(capsys.readouterr().err)["event_sink_available"] is False
+
+
+def test_busy_sqlite_commit_blocks_post(
+    private_journal_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trusted, operation = context(), uuid4()
+    journal = OperationJournal(private_journal_dir)
+    journal.prepare(operation, trusted)
+    consume = OwnedOperation.consume
+    connect = OperationJournal._connect
+    statements: list[str] = []
+    errors: list[int] = []
+
+    @contextmanager
+    def trace(
+        instance: OperationJournal, directory: int
+    ) -> Iterator[sqlite3.Connection]:
+        with connect(instance, directory) as db:
+
+            def observe(sql: str) -> None:
+                verb = sql.split(maxsplit=1)[0]
+                if verb in {"UPDATE", "COMMIT"}:
+                    statements.append(verb)
+
+            db.set_trace_callback(observe)
+            try:
+                yield db
+            except sqlite3.OperationalError as error:
+                errors.append(error.sqlite_errorcode)
+                raise
+
+    def consume_while_read_locked(
+        owned: OwnedOperation,
+        order_id: str,
+        requested_date: date,
+    ) -> Permit | None:
+        with closing(
+            sqlite3.connect(private_journal_dir / "operations.sqlite3")
+        ) as reader:
+            reader.execute("BEGIN")
+            reader.execute("SELECT started FROM operations").fetchone()
+            return consume(owned, order_id, requested_date)
+
+    monkeypatch.setattr(OperationJournal, "_connect", trace)
+    monkeypatch.setattr(OwnedOperation, "consume", consume_while_read_locked)
+    calls: list[tuple[str, str]] = []
+    result = asyncio.run(
+        OperationExecutor(journal, 4).execute(
+            operation,
+            trusted,
+            TEXT,
+            test_transport=httpx2.MockTransport(simulator_handler(calls)),
+        )
+    )
+    assert statements[-2:] == ["UPDATE", "COMMIT"]
+    assert errors == [sqlite3.SQLITE_BUSY]
+    assert result.outcome == "UNKNOWN" and result.case_id is None
+    assert [method for method, _ in calls] == ["GET", "GET", "GET"]
+    with journal.ownership(operation, trusted) as owned:
+        assert owned is not None
+        state = owned.read()
+        assert not state.consumed and not state.handed_off and not state.checked

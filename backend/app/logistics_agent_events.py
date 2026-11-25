@@ -61,10 +61,21 @@ class EventSink(Protocol):
 
 @dataclass(slots=True)
 class JsonlEventSink:
-    """The trusted caller opens an independent append stream for its series."""
+    """The trusted caller owns a readable, seekable, exclusive series stream."""
 
     stream: TextIO
     _available: bool = field(default=True, init=False)
+
+    def __post_init__(self) -> None:
+        # Refuse to concatenate a new event with a torn record from a previous writer.
+        try:
+            self.stream.seek(0)
+            last = ""
+            while chunk := self.stream.read(8192):
+                last = chunk[-1]
+            self._available = last in ("", "\n")
+        except (OSError, ValueError):
+            self._available = False
 
     def emit(self, event: AttemptEvent) -> None:
         if not self._available:
