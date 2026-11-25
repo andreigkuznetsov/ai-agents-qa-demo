@@ -236,9 +236,15 @@ def test_s01_to_s06_with_scripted_model_and_postgres(
                         ).fetchone()
                     assert row == (SAME_ORDER, DAY, "OPEN")
                 assert len(model.inputs) == len(replies)
+                observed_tools = tuple(
+                    proposal.tool
+                    for reply in model.outputs
+                    for proposal in reply.proposals
+                )
+                assert observed_tools == tuple(tool.value for tool in tools)
                 print(
                     f"{name} transport={'TCP' if transport is None else 'ASGI'} "
-                    f"proposals={','.join(tool.value for tool in tools)} "
+                    f"proposals={','.join(observed_tools)} "
                     f"http={actual_http} result={outcome}/{code} "
                     f"case_delta={writes} key_delta={writes} other_client_unchanged=true"
                 )

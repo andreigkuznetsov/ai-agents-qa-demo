@@ -16,6 +16,24 @@ class Step(StrEnum):
     WRITE = "write"
 
 
+class IntentHint(StrEnum):
+    INCOMPLETE = "incomplete"
+    INFORMATION = "information"
+    RESCHEDULE = "reschedule"
+
+
+class Fact(StrEnum):
+    ORDER_ACTIVE = "order_active"
+    ORDER_BLOCKED = "order_blocked"
+    DATE_ALLOWED = "date_allowed"
+    NO_MATCHING_CASE = "no_matching_case"
+
+
+class ModelText(StrEnum):
+    ASK_FOR_DETAILS = "ask_for_details"
+    STOP = "stop"
+
+
 _TOOLS = {
     Step.CLARIFY: None,
     Step.ORDER: Operation.GET_ORDER,
@@ -28,10 +46,27 @@ _TOOLS = {
 @dataclass(frozen=True, slots=True)
 class ModelInput:
     step: Step
-    write_requested: bool
+    intent: IntentHint
+    facts: tuple[Fact, ...]
+    deadline_remaining_ms: int
+    max_input_tokens: int
+    max_output_tokens: int
 
     def __post_init__(self) -> None:
-        if type(self.step) is not Step or type(self.write_requested) is not bool:
+        if (
+            type(self.step) is not Step
+            or type(self.intent) is not IntentHint
+            or type(self.facts) is not tuple
+            or any(type(fact) is not Fact for fact in self.facts)
+            or any(
+                type(value) is not int or value <= 0
+                for value in (
+                    self.deadline_remaining_ms,
+                    self.max_input_tokens,
+                    self.max_output_tokens,
+                )
+            )
+        ):
             raise ValueError("INVALID_MODEL_INPUT")
 
     @property
@@ -43,10 +78,28 @@ class ModelInput:
         return json.dumps(
             {
                 "step": self.step.value,
-                "write_requested": self.write_requested,
+                "dialogue": {"intent": self.intent.value},
+                "facts": [fact.value for fact in self.facts],
+                "deadline_remaining_ms": self.deadline_remaining_ms,
+                "token_limits": {
+                    "input": self.max_input_tokens,
+                    "output": self.max_output_tokens,
+                },
                 "tools": []
                 if tool is None
-                else [{"name": tool.value, "arguments": {"order_ref": "current"}}],
+                else [
+                    {
+                        "name": tool.value,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "order_ref": {"type": "string", "const": "current"}
+                            },
+                            "required": ["order_ref"],
+                            "additionalProperties": False,
+                        },
+                    }
+                ],
             },
             separators=(",", ":"),
         ).encode("utf-8")
@@ -62,6 +115,7 @@ class Proposal:
 class ModelReply:
     proposals: tuple[Proposal, ...]
     usage: Usage | None
+    text: ModelText | None = None
 
 
 class ModelUnavailable(Exception):
@@ -79,11 +133,14 @@ class ScenarioModel:
         self._replies = iter(replies)
         self.inputs: list[ModelInput] = []
         self.payloads: list[bytes] = []
+        self.outputs: list[ModelReply] = []
 
     async def propose(self, request: ModelInput) -> ModelReply:
         self.inputs.append(request)
         self.payloads.append(request.serialize())
         try:
-            return next(self._replies)
+            reply = next(self._replies)
         except StopIteration:
             raise ModelUnavailable from None
+        self.outputs.append(reply)
+        return reply

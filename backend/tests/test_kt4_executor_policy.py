@@ -22,8 +22,11 @@ from app.logistics_agent_events import EvidenceContext, JsonlEventSink
 from app.logistics_agent_executor import OperationExecutor
 from app.logistics_agent_journal import OperationJournal
 from app.logistics_agent_model import (
+    Fact,
+    IntentHint,
     ModelInput,
     ModelReply,
+    ModelText,
     Proposal,
     ScenarioModel,
     Step,
@@ -64,7 +67,9 @@ def test_independent_call_limits(kind: Call, allowed: int) -> None:
 
             async def invoke() -> ModelReply | None:
                 if kind == "model":
-                    return await model.propose(ModelInput(Step.ORDER, False))
+                    return await model.propose(
+                        ModelInput(Step.ORDER, IntentHint.INFORMATION, (), 100, 8, 4)
+                    )
                 if kind == "post":
                     await client.post("/cases")
                 else:
@@ -255,6 +260,24 @@ def test_model_proposal_policy(proposals: tuple[Proposal, ...], tmp_path: Path) 
     assert event["post_attempts"] == 0
 
 
+def test_model_text_cannot_trigger_tool(tmp_path: Path) -> None:
+    journal = OperationJournal(make_private_journal_dir(tmp_path))
+    ctx, operation = context(), uuid4()
+    journal.prepare(operation, ctx)
+    port = ScenarioModel([ModelReply((), Usage(1, 1), ModelText.STOP)])
+
+    def forbidden(_: httpx2.Request) -> httpx2.Response:
+        pytest.fail("Model text reached HTTP", pytrace=False)
+
+    result = asyncio.run(
+        OperationExecutor(journal, 2, model=port, limits=LIMITS).execute(
+            operation, ctx, TEXT, test_transport=httpx2.MockTransport(forbidden)
+        )
+    )
+    assert result.code == "MODEL_STOPPED"
+    assert len(port.inputs) == 1
+
+
 @pytest.mark.parametrize("forbidden_followup", [False, True])
 def test_model_payload_and_event_sink_have_distinct_secret_checks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, forbidden_followup: bool
@@ -322,7 +345,26 @@ def test_model_payload_and_event_sink_have_distinct_secret_checks(
             pytest.fail("Secret in serialized model payload", pytrace=False)
         if secret in stream.getvalue():
             pytest.fail("Secret in EventSink", pytrace=False)
-    assert all(
-        set(json.loads(payload)) == {"step", "write_requested", "tools"}
-        for payload in port.payloads
-    )
+    for actual, payload in zip(port.inputs, port.payloads, strict=True):
+        parsed = json.loads(payload)
+        assert set(parsed) == {
+            "step",
+            "dialogue",
+            "facts",
+            "deadline_remaining_ms",
+            "token_limits",
+            "tools",
+        }
+        assert parsed["dialogue"] == {"intent": "reschedule"}
+        assert parsed["deadline_remaining_ms"] == actual.deadline_remaining_ms
+        assert 0 < actual.deadline_remaining_ms <= 2000
+        assert parsed["token_limits"] == {"input": 8, "output": 4}
+        assert parsed["facts"] == [fact.value for fact in actual.facts]
+        assert parsed["tools"][0]["parameters"]["additionalProperties"] is False
+    assert port.inputs[1].facts == (Fact.ORDER_ACTIVE,)
+    if not forbidden_followup:
+        assert port.inputs[-1].facts == (
+            Fact.ORDER_ACTIVE,
+            Fact.DATE_ALLOWED,
+            Fact.NO_MATCHING_CASE,
+        )

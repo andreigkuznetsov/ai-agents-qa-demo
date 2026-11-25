@@ -32,9 +32,12 @@ from app.logistics_agent_journal import (
     OwnedOperation,
 )
 from app.logistics_agent_model import (
+    Fact,
+    IntentHint,
     ModelInput,
     ModelPort,
     ModelReply,
+    ModelText,
     ModelUnavailable,
     Proposal,
     Step,
@@ -66,6 +69,10 @@ class ExecutionResult:
 
 
 class ProposalRejected(Exception):
+    pass
+
+
+class ModelStopped(Exception):
     pass
 
 
@@ -188,11 +195,12 @@ class OperationExecutor:
                 intent = resolve_intent(text, context.reference_year)
                 if intent is None:
                     try:
-                        await self._propose(Step.CLARIFY, False, budget)
+                        await self._propose(Step.CLARIFY, IntentHint.INCOMPLETE, budget)
                     except (
                         BudgetDenied,
                         ProposalRejected,
                         ModelUnavailable,
+                        ModelStopped,
                         CallTimedOut,
                     ):
                         pass
@@ -207,16 +215,32 @@ class OperationExecutor:
             return ExecutionResult("REJECTED", "EXECUTION_LIMIT_REACHED")
         except ProposalRejected:
             return ExecutionResult("REJECTED", "MODEL_PROPOSAL_REJECTED")
+        except ModelStopped:
+            return ExecutionResult("REJECTED", "MODEL_STOPPED")
         except (ModelUnavailable, CallTimedOut):
             return ExecutionResult("REJECTED", "CALL_UNAVAILABLE")
 
     async def _propose(
-        self, step: Step, write_requested: bool, budget: CallBudget
+        self,
+        step: Step,
+        intent: IntentHint,
+        budget: CallBudget,
+        facts: tuple[Fact, ...] = (),
     ) -> None:
         model = self.model
         if model is None:
             return
-        request = ModelInput(step, write_requested)
+        limits = budget.limits
+        if limits is None:
+            raise BudgetDenied
+        request = ModelInput(
+            step,
+            intent,
+            facts,
+            max(1, int(budget.time_for("model") * 1000)),
+            limits.max_input_tokens,
+            limits.max_output_tokens,
+        )
         response = await budget.call("model", lambda: model.propose(request))
         if type(response) is not ModelReply or type(response.proposals) is not tuple:
             raise ModelUnavailable
@@ -224,7 +248,14 @@ class OperationExecutor:
         proposals = response.proposals
         if not budget.count_proposals(len(proposals)):
             raise BudgetDenied
-        if valid_usage and len(proposals) == 1 and request.allowed is not None:
+        if valid_usage and not proposals and type(response.text) is ModelText:
+            raise ModelStopped
+        if (
+            valid_usage
+            and response.text is None
+            and len(proposals) == 1
+            and request.allowed is not None
+        ):
             proposal = proposals[0]
             if (
                 type(proposal) is Proposal
@@ -248,7 +279,12 @@ class OperationExecutor:
     ) -> ExecutionResult:
         order_args = {"order_id": intent.order_id}
         prepaid = self.model is not None
-        await self._propose(Step.ORDER, intent.requested_date is not None, budget)
+        hint = (
+            IntentHint.INFORMATION
+            if intent.requested_date is None
+            else IntentHint.RESCHEDULE
+        )
+        await self._propose(Step.ORDER, hint, budget)
         order = await budget.call(
             "read", lambda: tools.read(Operation.GET_ORDER, order_args), prepaid=prepaid
         )
@@ -257,7 +293,10 @@ class OperationExecutor:
         if intent.requested_date is None:
             return ExecutionResult("INFORMATION", "ORDER_READ", order=order)
 
-        await self._propose(Step.OPTIONS, True, budget)
+        facts: tuple[Fact, ...] = (
+            Fact.ORDER_ACTIVE if order.status == "ACTIVE" else Fact.ORDER_BLOCKED,
+        )
+        await self._propose(Step.OPTIONS, hint, budget, facts)
         options = await budget.call(
             "read",
             lambda: tools.read(Operation.GET_DELIVERY_OPTIONS, order_args),
@@ -280,7 +319,8 @@ class OperationExecutor:
         if intent.requested_date not in options.dates:
             return ExecutionResult("REJECTED", "DELIVERY_DATE_NOT_ALLOWED")
 
-        await self._propose(Step.CASES, True, budget)
+        facts = (*facts, Fact.DATE_ALLOWED)
+        await self._propose(Step.CASES, hint, budget, facts)
         cases = await budget.call(
             "read",
             lambda: tools.read(Operation.GET_ORDER_CASES, order_args),
@@ -292,7 +332,7 @@ class OperationExecutor:
             if case.requested_date == intent.requested_date:
                 return ExecutionResult("EXISTING", "OPEN_CASE_EXISTS", case.case_id)
 
-        await self._propose(Step.WRITE, True, budget)
+        await self._propose(Step.WRITE, hint, budget, (*facts, Fact.NO_MATCHING_CASE))
         budget.require_post_reserve(prepaid=prepaid)
         permit = owned.consume(intent.order_id, intent.requested_date)
         if permit is None:
